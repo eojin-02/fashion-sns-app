@@ -1,0 +1,38 @@
+spring:
+  threads:
+    virtual:
+      enabled: true   # 짧고 빈번한 블로킹 I/O 대량 처리 (설계서 2.1)
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/fsns}
+    username: ${SPRING_DATASOURCE_USERNAME:fsns}
+    password: ${SPRING_DATASOURCE_PASSWORD:fsns}
+  jpa:
+    hibernate:
+      ddl-auto: none   # 스키마는 db/init.sql이 단일 진실원천
+    open-in-view: false
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+app:
+  jwt:
+    # 개발용 시크릿. 운영에선 반드시 환경변수로 주입할 것 (256bit 이상)
+    secret: ${APP_JWT_SECRET:ZnNucy1kZXYtc2VjcmV0LWtleS1mb3ItZmFzaGlvbi1yYWRhci12Mi1kby1ub3QtdXNlLWluLXByb2Q=}
+    access-ttl-seconds: 1800        # 30분 (설계서 4.0)
+    refresh-ttl-seconds: 1209600    # 14일
+  s3:
+    endpoint: ${APP_S3_ENDPOINT:http://localhost:9000}
+    public-endpoint: ${APP_S3_PUBLIC_ENDPOINT:http://localhost:9000}  # 클라이언트가 PUT할 외부 주소
+    region: us-east-1
+    access-key: ${APP_S3_ACCESS_KEY:minioadmin}
+    secret-key: ${APP_S3_SECRET_KEY:minioadmin}
+    bucket: wardrobe
+    presign-ttl-seconds: 300
+  radar:
+    token-ttl-seconds: 600          # BLE 고스트 토큰 10분 (설계서 2.2)
+    resolve-cooldown-seconds: 180   # resolve 3분 1회 (설계서 4.3)
+    presence-window-seconds: 600    # Tier 2: 최근 N분 내 활성 (설계서 2.3)
+    room-dwell-seconds: 30          # 방 핑퐁 방지 최소 체류 (설계서 2.5)
+  scan:
+    daily-limit: 20                 # 유저당 일일 스캔 상한 (설계서 2.6)

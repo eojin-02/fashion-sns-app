@@ -1,0 +1,35 @@
+# ─── Backend (Gradle / Java) ───────────────────────────────
+backend/.gradle/
+backend/build/
+backend/bin/
+!backend/gradle/wrapper/gradle-wrapper.jar
+
+# ─── AI Server (Python) ────────────────────────────────────
+ai-server/__pycache__/
+ai-server/**/__pycache__/
+*.py[cod]
+ai-server/.venv/
+ai-server/venv/
+.env
+
+# ─── Flutter App ───────────────────────────────────────────
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/build/
+app/.pub-cache/
+app/.pub/
+app/ios/Pods/
+app/android/.gradle/
+app/android/local.properties
+*.iml
+
+# ─── IDE / OS ──────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ─── Docker / runtime data ─────────────────────────────────
+**/docker-data/

@@ -1,0 +1,26 @@
+name: fashion_radar
+description: "Fashion-Radar v2.0 — 가시거리 레이더 패션 SNS 클라이언트"
+publish_to: "none"
+version: 2.0.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  # BLE 스캔/광고. iOS 백그라운드 광고 불가 제약은 ble_service.dart 참고 (설계서 2.3)
+  flutter_blue_plus: ^1.32.0
+  # OS 레벨 지오펜스 위임 (설계서 2.5 보완 2 — 상시 GPS 폴링 금지)
+  geolocator: ^12.0.0
+  # 동네 방 실시간 피드 (STOMP over WebSocket)
+  stomp_dart_client: ^2.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

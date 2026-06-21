@@ -1,0 +1,57 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.5.8'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.fsns'
+version = '2.0.0'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// JWT (설계서 4.0)
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+	// Presigned URL 발급 (설계서 2.1 — 이미지는 Spring 서버를 경유하지 않음)
+	implementation platform('software.amazon.awssdk:bom:2.29.45')
+	implementation 'software.amazon.awssdk:s3'
+
+	runtimeOnly 'org.postgresql:postgresql'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// 기본 test: 인프라 불필요한 단위 테스트만 (Docker 없이 통과)
+tasks.named('test') {
+	useJUnitPlatform {
+		excludeTags 'integration'
+	}
+}
+
+// 통합 테스트: DB(PostGIS)/Redis 기동 후 실행 (docker compose up -d db redis minio)
+tasks.register('integrationTest', Test) {
+	useJUnitPlatform {
+		includeTags 'integration'
+	}
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+}
