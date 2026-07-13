@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
-import 'radar/radar_screen.dart';
+import 'home/home_shell.dart';
 
 void main() {
   runApp(const FashionRadarApp());
@@ -48,7 +48,7 @@ class _BootstrapState extends State<_Bootstrap> {
       await _api.devLogin('dev@fsns.app', '개발자', DateTime(2000, 1, 1));
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => RadarScreen(api: _api)));
+          MaterialPageRoute(builder: (_) => HomeShell(api: _api)));
     } on Exception catch (e) {
       setState(() => _error = e.toString());
     }

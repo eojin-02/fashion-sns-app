@@ -1,6 +1,8 @@
 package com.fsns.radar.config;
 
+import com.fsns.radar.auth.StompAuthInterceptor;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
@@ -9,10 +11,22 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 /**
  * 동네 방 실시간 피드 push: Redis Pub/Sub → STOMP 브로커 릴레이 (설계서 2.1).
  * 클라이언트는 /topic/room/{dong_code} 를 구독한다.
+ * CONNECT 시 JWT 검증 — StompAuthInterceptor 참고.
  */
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+    private final StompAuthInterceptor stompAuthInterceptor;
+
+    public WebSocketConfig(StompAuthInterceptor stompAuthInterceptor) {
+        this.stompAuthInterceptor = stompAuthInterceptor;
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(stompAuthInterceptor);
+    }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {

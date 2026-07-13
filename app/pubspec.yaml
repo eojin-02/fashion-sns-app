@@ -16,6 +16,8 @@ dependencies:
   geolocator: ^12.0.0
   # 동네 방 실시간 피드 (STOMP over WebSocket)
   stomp_dart_client: ^2.0.0
+  # 옷장 등록 — 갤러리에서 사진 선택 (설계서 4.1 업로드 플로우)
+  image_picker: ^1.1.0
 
 dev_dependencies:
   flutter_test:

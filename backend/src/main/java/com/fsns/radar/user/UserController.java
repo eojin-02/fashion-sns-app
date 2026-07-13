@@ -2,6 +2,7 @@ package com.fsns.radar.user;
 
 import com.fsns.radar.common.ApiException;
 import jakarta.validation.constraints.NotNull;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -11,29 +12,31 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 내 계정 관리 API.
+ * 타 유저에 대한 차단/신고는 여기가 아닌 AvatarController(session_avatar_id 기반)에
+ * 있다 — 클라이언트가 타인의 user_id를 다루지 않게 하기 위함 (설계서 2.2).
+ * 유일한 예외는 차단 목록/해제: 이미 차단한 상대는 세션이 끝나도 관리할 수 있어야
+ * 하므로 여기서만 user_id를 노출한다.
+ */
 @RestController
 @RequestMapping("/api/v1/users")
 public class UserController {
 
     private final UserRepository userRepository;
     private final UserBlockRepository userBlockRepository;
-    private final UserReportRepository userReportRepository;
 
     public UserController(UserRepository userRepository,
-                          UserBlockRepository userBlockRepository,
-                          UserReportRepository userReportRepository) {
+                          UserBlockRepository userBlockRepository) {
         this.userRepository = userRepository;
         this.userBlockRepository = userBlockRepository;
-        this.userReportRepository = userReportRepository;
     }
 
     public record VisibilityRequest(@NotNull Boolean radar_visible) {}
-    public record ReportRequest(String reason) {}
 
     @GetMapping("/me")
     public Map<String, Object> me(Authentication auth) {
@@ -55,35 +58,23 @@ public class UserController {
         return Map.of("radar_visible", user.isRadarVisible());
     }
 
-    @PostMapping("/{targetId}/block")
-    public ResponseEntity<Void> block(Authentication auth, @PathVariable Long targetId) {
+    /** 차단 목록 (해제 관리용 — user_id 노출의 유일한 예외 지점) */
+    @GetMapping("/me/blocks")
+    public List<Map<String, Object>> myBlocks(Authentication auth) {
         Long me = (Long) auth.getPrincipal();
-        if (me.equals(targetId)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "자기 자신은 차단할 수 없습니다");
-        }
-        if (!userRepository.existsById(targetId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "존재하지 않는 유저입니다");
-        }
-        userBlockRepository.save(new UserBlock(me, targetId));
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+        List<Long> blockedIds = userBlockRepository.findBlockedIdsByBlocker(me);
+        return userRepository.findAllById(blockedIds).stream()
+                .map(u -> Map.<String, Object>of(
+                        "user_id", u.getId(),
+                        "nickname", u.getNickname()))
+                .toList();
     }
 
-    @DeleteMapping("/{targetId}/block")
+    @DeleteMapping("/me/blocks/{targetId}")
     public ResponseEntity<Void> unblock(Authentication auth, @PathVariable Long targetId) {
         Long me = (Long) auth.getPrincipal();
         userBlockRepository.deleteById(new UserBlock.Id(me, targetId));
         return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/{targetId}/report")
-    public ResponseEntity<Void> report(Authentication auth, @PathVariable Long targetId,
-                                       @RequestBody(required = false) ReportRequest req) {
-        Long me = (Long) auth.getPrincipal();
-        if (!userRepository.existsById(targetId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "존재하지 않는 유저입니다");
-        }
-        userReportRepository.save(new UserReport(me, targetId, req == null ? null : req.reason()));
-        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 
     private User currentUser(Authentication auth) {

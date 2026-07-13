@@ -30,6 +30,9 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
 
+	// API 문서 자동 생성 — http://localhost:8080/swagger-ui.html (팀 API 계약 공유용)
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'
+
 	// Presigned URL 발급 (설계서 2.1 — 이미지는 Spring 서버를 경유하지 않음)
 	implementation platform('software.amazon.awssdk:bom:2.29.45')
 	implementation 'software.amazon.awssdk:s3'

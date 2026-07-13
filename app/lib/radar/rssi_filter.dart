@@ -67,6 +67,10 @@ class RssiHysteresisFilter {
 
   static int _median(List<int> samples) {
     final sorted = [...samples]..sort();
-    return sorted[sorted.length ~/ 2];
+    final mid = sorted.length ~/ 2;
+    if (sorted.length.isOdd) return sorted[mid];
+    // 짝수 개면 가운데 두 값의 평균 — 상위 값을 취하면 강한 신호 쪽으로
+    // 편향되어 스파이크 1회 + 약한 신호로도 활성 전환되는 버그가 생긴다
+    return ((sorted[mid - 1] + sorted[mid]) / 2).round();
   }
 }

@@ -60,11 +60,45 @@ class ApiClient {
   Future<Map<String, dynamic>> requestScan(String imageKey) =>
       _post('/api/v1/wardrobe/scan', {'image_key': imageKey});
 
+  Future<Map<String, dynamic>> getMe() => _get('/api/v1/users/me');
+
   Future<Map<String, dynamic>> setGhostMode({required bool visible}) =>
       _patch('/api/v1/users/me/visibility', {'radar_visible': visible});
 
-  Future<void> blockUser(int userId) async =>
-      _post('/api/v1/users/$userId/block', {});
+  /// 옷장 — 내 아이템 / 찜 목록
+  Future<List<Map<String, dynamic>>> getMyItems() =>
+      _getList('/api/v1/wardrobe/items');
+
+  Future<List<Map<String, dynamic>>> getMyLikes() =>
+      _getList('/api/v1/wardrobe/likes');
+
+  Future<void> likeItem(int itemId) async =>
+      _post('/api/v1/wardrobe/items/$itemId/like', {});
+
+  Future<void> unlikeItem(int itemId) async =>
+      _send('DELETE', '/api/v1/wardrobe/items/$itemId/like', {});
+
+  /// 아바타 스코프 상호작용 — 타 유저의 user_id는 클라이언트에 존재하지 않는다.
+  /// 갤러리/레이더의 session_avatar_id 하나로 프로필·차단·신고 전부 처리 (설계서 2.2)
+  Future<Map<String, dynamic>> getAvatarProfile(String saId) =>
+      _get('/api/v1/avatars/$saId');
+
+  Future<void> blockAvatar(String saId) async =>
+      _post('/api/v1/avatars/$saId/block', {});
+
+  Future<void> reportAvatar(String saId, {String? reason}) async =>
+      _post('/api/v1/avatars/$saId/report', {'reason': reason});
+
+  Future<Map<String, dynamic>> _get(String path) => _send('GET', path, null);
+
+  Future<List<Map<String, dynamic>>> _getList(String path) async {
+    final response = await http.get(Uri.parse('$baseUrl$path'), headers: _headers);
+    if (response.statusCode >= 300) {
+      throw ApiException(response.statusCode, '요청 실패');
+    }
+    return (jsonDecode(utf8.decode(response.bodyBytes)) as List)
+        .cast<Map<String, dynamic>>();
+  }
 
   Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) =>
       _send('POST', path, body);
@@ -73,10 +107,12 @@ class ApiClient {
       _send('PATCH', path, body);
 
   Future<Map<String, dynamic>> _send(
-      String method, String path, Map<String, dynamic> body) async {
+      String method, String path, Map<String, dynamic>? body) async {
     final request = http.Request(method, Uri.parse('$baseUrl$path'))
-      ..headers.addAll(_headers)
-      ..body = jsonEncode(body);
+      ..headers.addAll(_headers);
+    if (body != null) {
+      request.body = jsonEncode(body);
+    }
     final response = await http.Response.fromStream(await request.send());
     final decoded = response.body.isEmpty
         ? <String, dynamic>{}

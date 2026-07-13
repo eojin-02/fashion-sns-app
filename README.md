@@ -38,7 +38,15 @@ uvicorn main:app --port 8000
 cd backend
 .\gradlew.bat test              # 단위 테스트 — 인프라 불필요, Docker 없이 통과 (JwtServiceTest 6건)
 .\gradlew.bat integrationTest   # 컨텍스트 로드 — DB/Redis 기동 후 실행
+
+cd ..\app
+flutter test                    # Dart 단위 테스트 (RSSI 히스테리시스 필터 6건)
+flutter analyze                 # 정적 분석
 ```
+
+### API 문서
+
+백엔드 실행 후 **http://localhost:8080/swagger-ui.html** 에서 전체 API 명세 확인·시험 호출 가능 (팀 API 계약 공유용).
 
 ### E2E 플로우 검증 (curl, Docker 필요)
 
@@ -67,7 +75,8 @@ curl.exe -s -X POST localhost:8080/api/v1/radar/resolve -H $h -H "Content-Type: 
 | 2.5 행정동 방 + 핑퐁 방지 | `backend/.../location/RoomService.java` (ST_Contains, 30초 체류 가드) |
 | 2.6 비동기 AI 파이프라인 | `WardrobeService`(202 + 큐 적재) → `ai-server/worker.py`(블러→해시 캐시→Gemini) |
 | 3.2 DDL | `db/init.sql` (+ `user_report`, `admin_dong`은 구현상 보강) |
-| 4.0 인증 | `auth/` — JWT Access 30분 / Refresh 14일. 소셜 OAuth는 `AuthController`에 연동 지점 주석 |
+| 4.0 인증 | `auth/` — JWT Access 30분 / Refresh 14일. 소셜 OAuth는 `AuthController`에 연동 지점 주석. WebSocket도 STOMP CONNECT 시 JWT 검증(`StompAuthInterceptor`) |
+| 2.2 ② 프로필 진입 | `avatar/` — 프로필 열람·차단·신고 전부 `session_avatar_id` 기반. 클라이언트는 타인의 user_id를 다루지 않음 |
 | 5 보안 장치 | resolve 쿨타임 3분, 토큰 TTL 10분, 고스트 모드 opt-in, 양방향 차단 필터 |
 
 ## 설계서 대비 구현 노트

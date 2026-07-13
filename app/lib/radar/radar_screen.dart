@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../ble/ble_service.dart';
 import '../core/api_client.dart';
+import 'avatar_profile_sheet.dart';
 
 /// 가시거리 레이더 화면.
 ///
@@ -89,9 +90,12 @@ class _RadarScreenState extends State<RadarScreen> {
           final card = _gallery[index];
           final saId = card['session_avatar_id'] as String;
           final isNear = _highlighted.contains(saId);
-          return _AvatarCard(
-            styleSummary: card['today_style_summary'] as String? ?? '',
-            highlighted: isNear,
+          return GestureDetector(
+            onTap: () => showAvatarProfileSheet(context, widget.api, saId),
+            child: _AvatarCard(
+              styleSummary: card['today_style_summary'] as String? ?? '',
+              highlighted: isNear,
+            ),
           );
         },
       ),
@@ -124,7 +128,7 @@ class _AvatarCard extends StatelessWidget {
             ? Border.all(color: Colors.cyanAccent, width: 3)
             : Border.all(color: Colors.transparent, width: 3),
         boxShadow: highlighted
-            ? [BoxShadow(color: Colors.cyanAccent.withOpacity(0.5), blurRadius: 12)]
+            ? [BoxShadow(color: Colors.cyanAccent.withValues(alpha: 0.5), blurRadius: 12)]
             : const [],
       ),
       child: Column(
