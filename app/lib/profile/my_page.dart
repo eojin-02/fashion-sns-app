@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api_client.dart';
 import '../core/avatar_viewer.dart';
@@ -106,19 +107,34 @@ class _MyPageState extends State<MyPage> {
                 child: Text('아직 찜한 아이템이 없습니다'),
               )
             else
-              ..._likes.map((item) => ListTile(
-                    leading: const Icon(Icons.favorite, color: Colors.pink),
-                    title: Text([item['brand_info'], item['category']]
-                        .whereType<String>()
-                        .join(' ')),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () async {
-                        await widget.api.unlikeItem(item['id'] as int);
-                        _load();
-                      },
-                    ),
-                  )),
+              ..._likes.map((item) {
+                final productUrl = item['product_url'] as String?;
+                return ListTile(
+                  leading: const Icon(Icons.favorite, color: Colors.pink),
+                  title: Text([item['brand_info'], item['category']]
+                      .whereType<String>()
+                      .join(' ')),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (productUrl != null && productUrl.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.open_in_new),
+                          tooltip: '사러 가기',
+                          onPressed: () => launchUrl(Uri.parse(productUrl),
+                              mode: LaunchMode.externalApplication),
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () async {
+                          await widget.api.unlikeItem(item['id'] as int);
+                          _load();
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }),
           ],
         ),
       ),

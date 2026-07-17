@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fsns.radar.common.ApiException;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,23 +66,53 @@ public class WardrobeService {
         return new UploadUrl(url, imageKey);
     }
 
-    public ClothesItem enqueueScan(Long userId, String imageKey) {
+    public ClothesItem enqueueScan(Long userId, String imageKey, String productUrl) {
         if (!imageKey.startsWith("u" + userId + "/")) {
             throw new ApiException(HttpStatus.FORBIDDEN, "본인이 업로드한 이미지만 등록할 수 있습니다");
         }
+        String normalizedUrl = validateProductUrl(productUrl);
         enforceDailyLimit(userId);
 
-        ClothesItem item = clothesItemRepository.save(new ClothesItem(userId, imageKey));
+        ClothesItem item = clothesItemRepository.save(
+                new ClothesItem(userId, imageKey, normalizedUrl));
         try {
-            String job = objectMapper.writeValueAsString(Map.of(
-                    "item_id", item.getId(),
-                    "user_id", userId,
-                    "image_key", imageKey));
-            redis.opsForList().leftPush(SCAN_QUEUE, job);
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("item_id", item.getId());
+            payload.put("user_id", userId);
+            payload.put("image_key", imageKey);
+            if (normalizedUrl != null) {
+                payload.put("product_url", normalizedUrl);
+            }
+            redis.opsForList().leftPush(SCAN_QUEUE, objectMapper.writeValueAsString(payload));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
         return item;
+    }
+
+    /**
+     * 상품 URL 형식 검증 (선택 입력 — 빈 값은 null).
+     * 사설망 차단 등 SSRF 방어는 실제로 URL을 가져가는 워커(product_info.py) 몫이고,
+     * 여기서는 명백한 쓰레기 값만 조기에 거른다.
+     */
+    private String validateProductUrl(String productUrl) {
+        if (productUrl == null || productUrl.isBlank()) {
+            return null;
+        }
+        String trimmed = productUrl.trim();
+        if (trimmed.length() > 500) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "상품 URL이 너무 깁니다 (최대 500자)");
+        }
+        boolean http = trimmed.startsWith("http://") || trimmed.startsWith("https://");
+        if (!http) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "상품 URL은 http/https만 허용됩니다");
+        }
+        try {
+            java.net.URI.create(trimmed);
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "올바른 URL 형식이 아닙니다");
+        }
+        return trimmed;
     }
 
     /**

@@ -22,6 +22,7 @@ CREATE TABLE clothes_item (
     meta_data   JSONB,
     brand_info  VARCHAR(100),
     image_key   VARCHAR(255) NOT NULL,             -- S3 object key
+    product_url VARCHAR(500),                       -- 쇼핑몰 상품 페이지 (선택 — 태깅 강화·사러 가기)
     scan_status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING/DONE/FAILED
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

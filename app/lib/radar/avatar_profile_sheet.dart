@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api_client.dart';
 import '../core/avatar_viewer.dart';
@@ -151,6 +152,7 @@ class _AvatarProfileSheetState extends State<_AvatarProfileSheet> {
         else
           ...items.map((item) {
             final itemId = item['item_id'] as int;
+            final productUrl = item['product_url'] as String?;
             final title = [item['brand_info'], item['category']]
                 .whereType<String>()
                 .join(' ');
@@ -158,15 +160,27 @@ class _AvatarProfileSheetState extends State<_AvatarProfileSheet> {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.checkroom),
               title: Text(title.isEmpty ? '아이템' : title),
-              trailing: IconButton(
-                icon: Icon(
-                  _liked.contains(itemId)
-                      ? Icons.favorite
-                      : Icons.favorite_border,
-                  color: Colors.pink,
-                ),
-                onPressed:
-                    _liked.contains(itemId) ? null : () => _like(itemId),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (productUrl != null && productUrl.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.open_in_new),
+                      tooltip: '사러 가기',
+                      onPressed: () => launchUrl(Uri.parse(productUrl),
+                          mode: LaunchMode.externalApplication),
+                    ),
+                  IconButton(
+                    icon: Icon(
+                      _liked.contains(itemId)
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                      color: Colors.pink,
+                    ),
+                    onPressed:
+                        _liked.contains(itemId) ? null : () => _like(itemId),
+                  ),
+                ],
               ),
             );
           }),

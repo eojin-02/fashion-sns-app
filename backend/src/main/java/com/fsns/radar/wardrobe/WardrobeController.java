@@ -33,7 +33,8 @@ public class WardrobeController {
         this.itemLikeRepository = itemLikeRepository;
     }
 
-    public record ScanRequest(@NotBlank String image_key) {}
+    /** product_url은 선택 — 쇼핑몰 상품 페이지 (태깅 강화·사러 가기 링크) */
+    public record ScanRequest(@NotBlank String image_key, String product_url) {}
 
     /** 설계서 4.1 ① — Presigned URL 발급. 이미지는 서버를 경유하지 않는다. */
     @PostMapping("/upload-url")
@@ -45,7 +46,8 @@ public class WardrobeController {
     @PostMapping("/scan")
     public ResponseEntity<Map<String, Object>> scan(Authentication auth,
                                                     @Valid @RequestBody ScanRequest req) {
-        ClothesItem item = wardrobeService.enqueueScan((Long) auth.getPrincipal(), req.image_key());
+        ClothesItem item = wardrobeService.enqueueScan(
+                (Long) auth.getPrincipal(), req.image_key(), req.product_url());
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
                 "job_id", "scan-" + item.getId(),
                 "item_id", item.getId(),
@@ -95,6 +97,7 @@ public class WardrobeController {
         dto.put("brand_info", item.getBrandInfo());
         dto.put("meta_data", item.getMetaData());
         dto.put("image_key", item.getImageKey());
+        dto.put("product_url", item.getProductUrl());
         dto.put("scan_status", item.getScanStatus());
         return dto;
     }

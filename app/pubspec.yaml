@@ -22,6 +22,8 @@ dependencies:
   google_sign_in: ^7.2.0
   # 3D 아바타 GLB 360° 뷰어 (설계서 4.2 avatar_bundle_url)
   model_viewer_plus: ^1.9.3
+  # 찜한 아이템 "사러 가기" — 상품 URL 외부 브라우저 열기
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

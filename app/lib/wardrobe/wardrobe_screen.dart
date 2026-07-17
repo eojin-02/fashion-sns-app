@@ -50,13 +50,18 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         source: ImageSource.gallery, imageQuality: 85);
     if (picked == null) return;
 
+    // 상품 URL(선택) — 넣으면 워커가 상품컷·상품명으로 태깅을 강화한다
+    final productUrl = await _askProductUrl();
+    if (!mounted) return;
+
     setState(() => _uploading = true);
     try {
       // ① Presigned URL 발급 → ② S3 직접 업로드(서버 미경유) → ③ 스캔 큐 적재
       final upload = await widget.api.createUploadUrl();
       await widget.api.uploadImage(
           upload['presigned_url'] as String, await picked.readAsBytes());
-      await widget.api.requestScan(upload['image_key'] as String);
+      await widget.api
+          .requestScan(upload['image_key'] as String, productUrl: productUrl);
       _snack('업로드 완료 — AI 분석 중입니다');
       await _refresh();
     } on ApiException catch (e) {
@@ -64,6 +69,57 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
+  }
+
+  /// 상품 페이지 URL 입력 (선택) — 건너뛰거나 닫으면 null
+  Future<String?> _askProductUrl() {
+    final controller = TextEditingController();
+    String? errorText;
+    return showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('상품 링크 (선택)'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('쇼핑몰 상품 페이지 주소를 넣으면 브랜드·색상 인식이 정확해집니다.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.url,
+                decoration: InputDecoration(
+                  hintText: 'https://...',
+                  errorText: errorText,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('건너뛰기'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final url = controller.text.trim();
+                if (url.isEmpty) {
+                  Navigator.pop(context);
+                  return;
+                }
+                if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                  setDialogState(
+                      () => errorText = 'http:// 또는 https:// 주소만 가능합니다');
+                  return;
+                }
+                Navigator.pop(context, url);
+              },
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// 선택한 조합을 아바타에 입힌다 — 서버가 재생성 잡을 큐에 넣고 202처럼 동작

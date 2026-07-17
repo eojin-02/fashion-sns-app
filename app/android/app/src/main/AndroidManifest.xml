@@ -1,6 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- API 호출·3D 아바타(GLB) 다운로드 — debug/profile 매니페스트에만 있던 것을 release에도 적용 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 상품 URL "사러 가기" — API 30+ 패키지 가시성 (url_launcher) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
     <application
         android:label="fashion_radar"
         android:name="${applicationName}"

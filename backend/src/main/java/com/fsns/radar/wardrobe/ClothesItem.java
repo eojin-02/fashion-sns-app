@@ -36,6 +36,10 @@ public class ClothesItem {
     @Column(name = "image_key", nullable = false)
     private String imageKey;
 
+    /** 쇼핑몰 상품 페이지 (선택) — 워커의 태깅 강화 + 찜 "사러 가기" 링크 */
+    @Column(name = "product_url", length = 500)
+    private String productUrl;
+
     /** PENDING / DONE / FAILED — 비동기 AI 파이프라인 추적 (설계서 2.6) */
     @Column(name = "scan_status", nullable = false, length = 20)
     private String scanStatus = "PENDING";
@@ -46,8 +50,13 @@ public class ClothesItem {
     protected ClothesItem() {}
 
     public ClothesItem(Long userId, String imageKey) {
+        this(userId, imageKey, null);
+    }
+
+    public ClothesItem(Long userId, String imageKey, String productUrl) {
         this.userId = userId;
         this.imageKey = imageKey;
+        this.productUrl = productUrl;
     }
 
     public Long getId() { return id; }
@@ -56,6 +65,7 @@ public class ClothesItem {
     public Map<String, Object> getMetaData() { return metaData; }
     public String getBrandInfo() { return brandInfo; }
     public String getImageKey() { return imageKey; }
+    public String getProductUrl() { return productUrl; }
     public String getScanStatus() { return scanStatus; }
     public Instant getCreatedAt() { return createdAt; }
 

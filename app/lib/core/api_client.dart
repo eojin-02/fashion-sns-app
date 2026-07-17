@@ -75,8 +75,14 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> requestScan(String imageKey) =>
-      _post('/api/v1/wardrobe/scan', {'image_key': imageKey});
+  /// productUrl(선택): 쇼핑몰 상품 페이지 — 워커가 상품컷/상품명으로 태깅을 강화한다.
+  Future<Map<String, dynamic>> requestScan(String imageKey,
+          {String? productUrl}) =>
+      _post('/api/v1/wardrobe/scan', {
+        'image_key': imageKey,
+        if (productUrl != null && productUrl.isNotEmpty)
+          'product_url': productUrl,
+      });
 
   /// 오늘의 코디 — 선택한 옷장 아이템 조합을 아바타에 입힌다 (설계서 4.2).
   /// 저장 즉시 서버가 아바타 재생성 잡을 큐에 넣고, 완료는 WebSocket으로 통지된다.

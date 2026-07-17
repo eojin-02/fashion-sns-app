@@ -128,6 +128,7 @@ public class AvatarService {
         dto.put("category", item.getCategory());
         dto.put("brand_info", item.getBrandInfo());
         dto.put("image_key", item.getImageKey());
+        dto.put("product_url", item.getProductUrl());  // 찜 → "사러 가기" 연결
         return dto;
     }
 }

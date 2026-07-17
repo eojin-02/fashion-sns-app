@@ -21,6 +21,7 @@ import psycopg
 import redis
 
 import avatar_builder
+import product_info
 import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -116,24 +117,45 @@ def process(job: dict) -> None:
                       Body=blurred, ContentType="image/jpeg")
         log.info("행인 얼굴 블러 적용 후 재업로드 item=%s", item_id)
 
-    # 동일 이미지 해시 캐싱 — 같은 사진 재분석 방지 (설계서 2.6)
-    digest = hashlib.sha256(original).hexdigest()
+    # 상품 URL 메타데이터 강화 — 실패해도 촬영본 분석으로 폴백 (SSRF 방어는 product_info)
+    product = {}
+    if job.get("product_url"):
+        try:
+            product = product_info.fetch_og(job["product_url"])
+        except Exception:
+            log.warning("상품 페이지 조회 실패 item=%s url=%s", item_id, job["product_url"])
+
+    # 상품컷이 있으면 그걸로 분석 — 셀카보다 정면·무배경이라 태깅 정확도가 높다
+    analysis_image = blurred
+    if product.get("image"):
+        try:
+            analysis_image = product_info.download_image(product["image"])
+            log.info("상품컷 기준 분석 item=%s", item_id)
+        except Exception:
+            log.warning("상품컷 다운로드 실패 item=%s — 촬영본으로 분석", item_id)
+
+    # 동일 이미지 해시 캐싱 — 같은 사진 재분석 방지 (설계서 2.6). 분석에 쓴 이미지 기준.
+    digest = hashlib.sha256(analysis_image).hexdigest()
     cache_key = f"imghash:{digest}"
     cached = r.get(cache_key)
     if cached:
         result = json.loads(cached)
         log.info("해시 캐시 적중 item=%s — Gemini 호출 생략", item_id)
     else:
-        result = analyze_with_gemini(blurred)
+        result = analyze_with_gemini(analysis_image)
         r.set(cache_key, json.dumps(result, ensure_ascii=False), ex=60 * 60 * 24 * 30)
 
     meta = {k: v for k, v in result.items() if k not in ("category", "brand_guess")}
+    if product.get("title"):
+        meta["product_name"] = product["title"]
+    # 브랜드: Vision 추정이 없으면 쇼핑몰 사이트명으로 보강
+    brand = result.get("brand_guess") or product.get("site_name")
     with psycopg.connect(settings.DATABASE_URL) as conn:
         conn.execute(
             """UPDATE clothes_item
                SET category = %s, brand_info = %s, meta_data = %s::jsonb, scan_status = 'DONE'
                WHERE id = %s""",
-            (result.get("category"), result.get("brand_guess"),
+            (result.get("category"), brand,
              json.dumps(meta, ensure_ascii=False), item_id),
         )
 
