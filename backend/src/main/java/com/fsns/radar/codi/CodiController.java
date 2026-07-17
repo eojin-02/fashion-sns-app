@@ -4,6 +4,7 @@ import com.fsns.radar.common.ApiException;
 import com.fsns.radar.feed.FeedPublisher;
 import com.fsns.radar.radar.RadarService;
 import com.fsns.radar.wardrobe.ClothesItemRepository;
+import com.fsns.radar.wardrobe.WardrobeService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
@@ -28,19 +29,22 @@ public class CodiController {
     private final RadarService radarService;
     private final FeedPublisher feedPublisher;
     private final StringRedisTemplate redis;
+    private final WardrobeService wardrobeService;
 
     public CodiController(DailyCodiRepository codiRepository,
                           DailyCodiItemRepository codiItemRepository,
                           ClothesItemRepository clothesItemRepository,
                           RadarService radarService,
                           FeedPublisher feedPublisher,
-                          StringRedisTemplate redis) {
+                          StringRedisTemplate redis,
+                          WardrobeService wardrobeService) {
         this.codiRepository = codiRepository;
         this.codiItemRepository = codiItemRepository;
         this.clothesItemRepository = clothesItemRepository;
         this.radarService = radarService;
         this.feedPublisher = feedPublisher;
         this.redis = redis;
+        this.wardrobeService = wardrobeService;
     }
 
     public record CodiRequest(@NotEmpty List<Long> item_ids) {}
@@ -66,6 +70,9 @@ public class CodiController {
         codiItemRepository.deleteAllByCodiId(codi.getId());
         req.item_ids().stream().distinct()
                 .forEach(itemId -> codiItemRepository.save(new DailyCodiItem(codi.getId(), itemId)));
+
+        // 3D 아바타 재생성 — 워커가 코디 아이템 태그로 GLB를 다시 만든다 (사진 재분석 없음)
+        wardrobeService.enqueueAvatarRebuild(userId);
 
         // 같은 방 유저에게 실시간 피드 push — 영속 ID가 아닌 세션 아바타 ID로 (설계서 2.2)
         String dongCode = redis.opsForValue().get("lastroom:dong:" + userId);

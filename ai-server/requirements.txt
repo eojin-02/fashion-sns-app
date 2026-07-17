@@ -1,8 +1,10 @@
 fastapi>=0.115
 uvicorn[standard]>=0.32
-redis>=5.0
+redis>=5.0,<8            # 8.0.1: brpop(timeout=N) 시 소켓 타임아웃이 N초로 같이 걸려 TimeoutError 발생
 psycopg[binary]>=3.2
 boto3>=1.35
 pillow>=10.4
 google-genai>=1.0          # Gemini Vision (GEMINI_API_KEY 없으면 스텁 모드로 동작)
 opencv-python-headless>=4.10  # 행인 얼굴 검출·블러 선처리
+trimesh>=4.4                  # 3D 아바타 GLB 절차 생성 (설계서 4.2 avatar_bundle_url)
+numpy>=1.26                   # trimesh 의존 + 얼굴 블러 버퍼 처리

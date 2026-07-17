@@ -1,9 +1,13 @@
 package com.fsns.radar.user;
 
 import com.fsns.radar.common.ApiException;
+import com.fsns.radar.common.S3UrlSigner;
+import com.fsns.radar.wardrobe.WardrobeService;
 import jakarta.validation.constraints.NotNull;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -27,13 +31,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/users")
 public class UserController {
 
+    /** 아바타 베이스 파라미터 허용값 — ai-server/avatar_builder.py의 팔레트와 동기 유지 */
+    private static final Map<String, Set<String>> AVATAR_CONFIG_ALLOWED = Map.of(
+            "skin", Set.of("light", "tan", "deep"),
+            "hair_color", Set.of("black", "brown", "blonde", "red", "blue", "pink"),
+            "hair_style", Set.of("short", "long", "bald"));
+
     private final UserRepository userRepository;
     private final UserBlockRepository userBlockRepository;
+    private final S3UrlSigner s3UrlSigner;
+    private final WardrobeService wardrobeService;
 
     public UserController(UserRepository userRepository,
-                          UserBlockRepository userBlockRepository) {
+                          UserBlockRepository userBlockRepository,
+                          S3UrlSigner s3UrlSigner,
+                          WardrobeService wardrobeService) {
         this.userRepository = userRepository;
         this.userBlockRepository = userBlockRepository;
+        this.s3UrlSigner = s3UrlSigner;
+        this.wardrobeService = wardrobeService;
     }
 
     public record VisibilityRequest(@NotNull Boolean radar_visible) {}
@@ -41,11 +57,37 @@ public class UserController {
     @GetMapping("/me")
     public Map<String, Object> me(Authentication auth) {
         User user = currentUser(auth);
-        return Map.of(
-                "id", user.getId(),
-                "email", user.getEmail(),
-                "nickname", user.getNickname(),
-                "radar_visible", user.isRadarVisible());
+        Map<String, Object> me = new HashMap<>();
+        me.put("id", user.getId());
+        me.put("email", user.getEmail());
+        me.put("nickname", user.getNickname());
+        me.put("radar_visible", user.isRadarVisible());
+        // 내 3D 아바타 GLB — 옷 등록 전이면 null (설계서 4.2)
+        me.put("avatar_bundle_url", s3UrlSigner.signGet(user.getAvatarBundleKey()));
+        me.put("avatar_config", user.getAvatarConfig());
+        return me;
+    }
+
+    /**
+     * 아바타 베이스 파라미터(피부/헤어) 변경 — 가입 시 1회 생성 후 언제든 수정 가능.
+     * 저장 즉시 재생성 잡을 큐에 넣어 현재 착장을 유지한 채 몸만 바뀐다.
+     */
+    @PatchMapping("/me/avatar-config")
+    @Transactional
+    public Map<String, Object> setAvatarConfig(Authentication auth,
+                                               @RequestBody Map<String, String> req) {
+        for (Map.Entry<String, String> entry : req.entrySet()) {
+            Set<String> allowed = AVATAR_CONFIG_ALLOWED.get(entry.getKey());
+            if (allowed == null || entry.getValue() == null || !allowed.contains(entry.getValue())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "지원하지 않는 아바타 설정입니다: " + entry.getKey());
+            }
+        }
+        User user = currentUser(auth);
+        user.setAvatarConfig(new HashMap<>(req));
+        userRepository.save(user);
+        wardrobeService.enqueueAvatarRebuild(user.getId());
+        return Map.of("avatar_config", user.getAvatarConfig());
     }
 
     /** 고스트 모드 토글 — 언제든 레이더 비노출 선택 가능 (설계서 1.2) */

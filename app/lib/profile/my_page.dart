@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../core/avatar_viewer.dart';
+import 'avatar_editor.dart';
 
 /// 마이페이지 — 고스트 모드 토글(설계서 1.2 핵심)과 찜 모아보기.
 class MyPage extends StatefulWidget {
@@ -14,6 +16,7 @@ class MyPage extends StatefulWidget {
 
 class _MyPageState extends State<MyPage> {
   String _nickname = '';
+  String? _avatarBundleUrl; // 내 3D 아바타 GLB — 옷 등록 전이면 null
   bool _radarVisible = false; // 기본 비노출(opt-in) — 서버 기본값과 동일
   bool _busy = false;
   List<Map<String, dynamic>> _likes = [];
@@ -31,6 +34,7 @@ class _MyPageState extends State<MyPage> {
       if (mounted) {
         setState(() {
           _nickname = me['nickname'] as String? ?? '';
+          _avatarBundleUrl = me['avatar_bundle_url'] as String?;
           _radarVisible = me['radar_visible'] as bool? ?? false;
           _likes = likes;
         });
@@ -65,6 +69,21 @@ class _MyPageState extends State<MyPage> {
         onRefresh: _load,
         child: ListView(
           children: [
+            // 내 3D 아바타 — 드래그로 앞뒤 양옆 회전, 코디/설정 변경마다 재생성
+            AvatarViewer(bundleUrl: _avatarBundleUrl),
+            ListTile(
+              leading: const Icon(Icons.face_retouching_natural),
+              title: const Text('아바타 수정'),
+              subtitle: const Text('피부 톤 · 헤어스타일 · 헤어 컬러'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                final changed = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                        builder: (_) => AvatarEditorScreen(api: widget.api)));
+                if (changed == true) _load(); // 재생성 완료 전이면 당겨서 새로고침으로 재확인
+              },
+            ),
+            const Divider(),
             SwitchListTile(
               value: _radarVisible,
               onChanged: _busy ? null : _toggleVisibility,

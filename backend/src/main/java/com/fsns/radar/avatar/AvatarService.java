@@ -3,6 +3,7 @@ package com.fsns.radar.avatar;
 import com.fsns.radar.codi.DailyCodiItemRepository;
 import com.fsns.radar.codi.DailyCodiRepository;
 import com.fsns.radar.common.ApiException;
+import com.fsns.radar.common.S3UrlSigner;
 import com.fsns.radar.radar.RadarService;
 import com.fsns.radar.user.User;
 import com.fsns.radar.user.UserBlock;
@@ -37,6 +38,7 @@ public class AvatarService {
     private final DailyCodiRepository dailyCodiRepository;
     private final DailyCodiItemRepository dailyCodiItemRepository;
     private final ClothesItemRepository clothesItemRepository;
+    private final S3UrlSigner s3UrlSigner;
 
     public AvatarService(RadarService radarService,
                          UserRepository userRepository,
@@ -44,7 +46,8 @@ public class AvatarService {
                          UserReportRepository userReportRepository,
                          DailyCodiRepository dailyCodiRepository,
                          DailyCodiItemRepository dailyCodiItemRepository,
-                         ClothesItemRepository clothesItemRepository) {
+                         ClothesItemRepository clothesItemRepository,
+                         S3UrlSigner s3UrlSigner) {
         this.radarService = radarService;
         this.userRepository = userRepository;
         this.userBlockRepository = userBlockRepository;
@@ -52,6 +55,7 @@ public class AvatarService {
         this.dailyCodiRepository = dailyCodiRepository;
         this.dailyCodiItemRepository = dailyCodiItemRepository;
         this.clothesItemRepository = clothesItemRepository;
+        this.s3UrlSigner = s3UrlSigner;
     }
 
     public Map<String, Object> profile(Long viewerId, String sessionAvatarId) {
@@ -69,6 +73,8 @@ public class AvatarService {
         profile.put("session_avatar_id", sessionAvatarId);
         profile.put("nickname", target.getNickname());
         profile.put("avatar_url", target.getAvatarUrl());
+        // 3D 아바타 GLB — 앱이 360° 뷰어로 렌더링 (설계서 4.2)
+        profile.put("avatar_bundle_url", s3UrlSigner.signGet(target.getAvatarBundleKey()));
         profile.put("today_style_summary", clothesItemRepository
                 .findFirstByUserIdOrderByCreatedAtDesc(target.getId())
                 .map(ClothesItem::summary).orElse("스타일 정보 없음"));

@@ -6,6 +6,7 @@ Spring 서버가 Redis 큐(queue:scan)에 적재한 작업을 소비한다:
   3. 동일 이미지 해시 캐시 조회 (같은 사진 재분석 방지 — 비용 통제)
   4. Gemini Vision 태깅 (API 키 없으면 스텁 태깅으로 폴백)
   5. clothes_item 업데이트(DONE/FAILED) 후 완료 알림 발행
+  6. 옷장 최신 착장으로 3D 아바타 GLB 재생성 → S3 업로드 (설계서 4.2)
 
 실행: python worker.py
 """
@@ -19,6 +20,7 @@ import boto3
 import psycopg
 import redis
 
+import avatar_builder
 import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -135,11 +137,63 @@ def process(job: dict) -> None:
              json.dumps(meta, ensure_ascii=False), item_id),
         )
 
+    # 아바타 재생성은 부가 작업 — 실패해도 스캔 자체(DONE)는 유지한다
+    try:
+        rebuild_avatar(user_id)
+    except Exception:
+        log.exception("아바타 재생성 실패 user=%s (스캔 결과는 유지)", user_id)
+
     # 완료 알림 — Spring이 이 채널을 STOMP(/topic/scan/{user_id})로 릴레이
     r.publish(f"{settings.RESULT_CHANNEL_PREFIX}{user_id}", json.dumps({
         "type": "SCAN_DONE", "item_id": item_id, "scan_status": "DONE",
     }))
     log.info("작업 완료 item=%s", item_id)
+
+
+# ---------------------------------------------------------------- 3D 아바타
+def rebuild_avatar(user_id: int) -> None:
+    """옷장 태그로 블록 아바타 GLB를 만들어 S3에 올린다.
+
+    착장 기준: 유저가 고른 '오늘의 코디'(daily_codi)가 있으면 그 조합,
+    없으면 카테고리별 최신 DONE 아이템 폴백. 사진 재분석 없이 DB 태그만 쓴다.
+    실사 3D 스캔이 아닌 태그 기반 절차 생성이라 얼굴/신체 데이터가 남지 않는다
+    (설계서 1.2 프라이버시 원칙). 항상 같은 키를 덮어써서 CDN 키가 안정적이다.
+    """
+    with psycopg.connect(settings.DATABASE_URL) as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT ON (ci.category) ci.category, ci.meta_data
+               FROM daily_codi dc
+               JOIN daily_codi_item dci ON dci.codi_id = dc.id
+               JOIN clothes_item ci ON ci.id = dci.item_id
+               WHERE dc.user_id = %s
+                 AND ci.scan_status = 'DONE' AND ci.category IS NOT NULL
+               ORDER BY ci.category, ci.created_at DESC""",
+            (user_id,),
+        ).fetchall()
+        if not rows:  # 코디 미설정 → 최신 아이템 조합 폴백
+            rows = conn.execute(
+                """SELECT DISTINCT ON (category) category, meta_data
+                   FROM clothes_item
+                   WHERE user_id = %s AND scan_status = 'DONE' AND category IS NOT NULL
+                   ORDER BY category, created_at DESC""",
+                (user_id,),
+            ).fetchall()
+        outfit = avatar_builder.outfit_from_items(
+            [{"category": c, "meta_data": m} for c, m in rows])
+
+        # 베이스 파라미터(피부/헤어) — 가입 시 1회 생성, 마이페이지에서 변경 (avatar_config)
+        config_row = conn.execute(
+            "SELECT avatar_config FROM users WHERE id = %s", (user_id,)).fetchone()
+        config = config_row[0] if config_row and config_row[0] else {}
+
+        glb = avatar_builder.build_avatar_glb(outfit, config)
+        key = f"avatars/u{user_id}.glb"
+        s3.put_object(Bucket=settings.S3_BUCKET, Key=key,
+                      Body=glb, ContentType="model/gltf-binary")
+
+        conn.execute("UPDATE users SET avatar_bundle_key = %s WHERE id = %s",
+                     (key, user_id))
+    log.info("아바타 재생성 완료 user=%s slots=%s", user_id, sorted(outfit))
 
 
 def mark_failed(job: dict) -> None:
@@ -154,6 +208,18 @@ def mark_failed(job: dict) -> None:
         log.exception("실패 상태 기록 중 오류")
 
 
+def handle(job: dict) -> None:
+    """잡 라우팅 — AVATAR_ONLY(코디 변경)는 스캔 없이 아바타만 재생성한다."""
+    if job.get("type") == "AVATAR_ONLY":
+        user_id = job["user_id"]
+        rebuild_avatar(user_id)
+        r.publish(f"{settings.RESULT_CHANNEL_PREFIX}{user_id}", json.dumps({
+            "type": "AVATAR_UPDATED",
+        }))
+        return
+    process(job)
+
+
 def main() -> None:
     log.info("스캔 워커 시작 — 큐: %s", settings.SCAN_QUEUE)
     while True:
@@ -163,10 +229,10 @@ def main() -> None:
         job = None
         try:
             job = json.loads(popped[1])
-            process(job)
+            handle(job)
         except Exception:
             log.exception("작업 처리 실패: %s", popped[1])
-            if job:
+            if job and "item_id" in job:  # 스캔 잡만 FAILED 마킹 (아바타 잡은 해당 없음)
                 mark_failed(job)
             time.sleep(1)  # 연쇄 실패 시 폭주 방지
 

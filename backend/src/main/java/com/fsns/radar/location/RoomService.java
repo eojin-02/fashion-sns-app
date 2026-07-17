@@ -1,6 +1,7 @@
 package com.fsns.radar.location;
 
 import com.fsns.radar.common.ApiException;
+import com.fsns.radar.common.S3UrlSigner;
 import com.fsns.radar.feed.FeedPublisher;
 import com.fsns.radar.radar.RadarService;
 import com.fsns.radar.user.User;
@@ -35,6 +36,7 @@ public class RoomService {
     private final UserBlockRepository userBlockRepository;
     private final ClothesItemRepository clothesItemRepository;
     private final FeedPublisher feedPublisher;
+    private final S3UrlSigner s3UrlSigner;
     private final long presenceWindowSeconds;
     private final long roomDwellSeconds;
 
@@ -45,6 +47,7 @@ public class RoomService {
                        UserBlockRepository userBlockRepository,
                        ClothesItemRepository clothesItemRepository,
                        FeedPublisher feedPublisher,
+                       S3UrlSigner s3UrlSigner,
                        @Value("${app.radar.presence-window-seconds}") long presenceWindowSeconds,
                        @Value("${app.radar.room-dwell-seconds}") long roomDwellSeconds) {
         this.jdbc = jdbc;
@@ -54,6 +57,7 @@ public class RoomService {
         this.userBlockRepository = userBlockRepository;
         this.clothesItemRepository = clothesItemRepository;
         this.feedPublisher = feedPublisher;
+        this.s3UrlSigner = s3UrlSigner;
         this.presenceWindowSeconds = presenceWindowSeconds;
         this.roomDwellSeconds = roomDwellSeconds;
     }
@@ -145,6 +149,8 @@ public class RoomService {
             Map<String, Object> card = new HashMap<>();
             card.put("session_avatar_id", radarService.sessionAvatarId(otherId, dongCode));
             card.put("avatar_url", other.getAvatarUrl());
+            // 3D 아바타 GLB (설계서 4.2) — 아직 옷을 등록하지 않은 유저는 null
+            card.put("avatar_bundle_url", s3UrlSigner.signGet(other.getAvatarBundleKey()));
             card.put("today_style_summary", styleSummary(otherId));
             gallery.add(card);
         }

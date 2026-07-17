@@ -21,6 +21,11 @@ app:
     secret: ${APP_JWT_SECRET:ZnNucy1kZXYtc2VjcmV0LWtleS1mb3ItZmFzaGlvbi1yYWRhci12Mi1kby1ub3QtdXNlLWluLXByb2Q=}
     access-ttl-seconds: 1800        # 30분 (설계서 4.0)
     refresh-ttl-seconds: 1209600    # 14일
+  google:
+    # 구글 클라우드 콘솔의 "웹 애플리케이션" OAuth 클라이언트 ID (설계서 4.0).
+    # 앱(google_sign_in)의 serverClientId와 반드시 동일해야 aud 검증을 통과한다.
+    # 미설정 시 /oauth/google은 503을 반환하고 dev-login만 동작한다.
+    client-id: ${APP_GOOGLE_CLIENT_ID:}
   s3:
     endpoint: ${APP_S3_ENDPOINT:http://localhost:9000}
     public-endpoint: ${APP_S3_PUBLIC_ENDPOINT:http://localhost:9000}  # 클라이언트가 PUT할 외부 주소

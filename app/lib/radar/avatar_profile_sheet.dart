@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../core/avatar_viewer.dart';
 
 /// 아바타 프로필 바텀시트.
 /// session_avatar_id 하나로 프로필 열람·찜·차단·신고를 전부 처리한다 —
@@ -139,7 +140,10 @@ class _AvatarProfileSheetState extends State<_AvatarProfileSheet> {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        // 3D 아바타 — 드래그로 앞뒤 양옆 회전 (설계서 4.2)
+        AvatarViewer(bundleUrl: profile['avatar_bundle_url'] as String?),
+        const SizedBox(height: 12),
         const Text('오늘의 코디', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         if (items.isEmpty)

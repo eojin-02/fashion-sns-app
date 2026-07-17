@@ -84,6 +84,21 @@ public class WardrobeService {
         return item;
     }
 
+    /**
+     * 3D 아바타 재생성 잡 적재 — 코디 변경·아바타 설정 변경·가입 시 호출된다.
+     * 스캔과 같은 큐를 쓰되 type으로 구분해 워커 소비 루프를 하나로 유지한다.
+     */
+    public void enqueueAvatarRebuild(Long userId) {
+        try {
+            String job = objectMapper.writeValueAsString(Map.of(
+                    "type", "AVATAR_ONLY",
+                    "user_id", userId));
+            redis.opsForList().leftPush(SCAN_QUEUE, job);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** 비용 통제: 유저당 일일 스캔 횟수 제한 — Redis 카운터 (설계서 2.6) */
     private void enforceDailyLimit(Long userId) {
         String key = "ratelimit:scan:" + userId + ":daily";

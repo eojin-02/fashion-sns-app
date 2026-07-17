@@ -8,6 +8,9 @@ import '../core/api_client.dart';
 /// 업로드 플로우: 갤러리 선택 → Presigned URL 발급 → S3 직접 PUT →
 /// POST /scan(202) → 목록에 PENDING으로 표시. 분석 완료는 서버가
 /// WebSocket(/topic/scan/{userId})으로 알리며, MVP에선 당겨서 새로고침으로도 갱신.
+///
+/// 코디 피팅(설계서 4.2): 분석 완료(DONE) 아이템을 탭해 여러 개 고른 뒤
+/// "아바타에 입히기" → PUT /codi → 워커가 그 조합으로 3D 아바타를 재생성한다.
 class WardrobeScreen extends StatefulWidget {
   const WardrobeScreen({super.key, required this.api});
 
@@ -20,6 +23,7 @@ class WardrobeScreen extends StatefulWidget {
 class _WardrobeScreenState extends State<WardrobeScreen> {
   final _picker = ImagePicker();
   List<Map<String, dynamic>> _items = [];
+  final Set<int> _selected = {}; // 코디 피팅용 선택 (DONE 아이템만)
   bool _loading = true;
   bool _uploading = false;
 
@@ -62,6 +66,25 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     }
   }
 
+  /// 선택한 조합을 아바타에 입힌다 — 서버가 재생성 잡을 큐에 넣고 202처럼 동작
+  Future<void> _applyCodi() async {
+    try {
+      await widget.api.setCodi(_selected.toList());
+      setState(() => _selected.clear());
+      _snack('아바타에 입혔습니다 — 잠시 후 마이페이지에서 확인하세요');
+    } on ApiException catch (e) {
+      _snack(e.message);
+    }
+  }
+
+  void _toggleSelect(int itemId) {
+    setState(() {
+      if (!_selected.remove(itemId)) {
+        _selected.add(itemId);
+      }
+    });
+  }
+
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -70,7 +93,23 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('내 옷장')),
+      appBar: AppBar(
+        title: Text(_selected.isEmpty ? '내 옷장' : '${_selected.length}개 선택'),
+        actions: [
+          if (_selected.isNotEmpty) ...[
+            TextButton.icon(
+              onPressed: _applyCodi,
+              icon: const Icon(Icons.accessibility_new),
+              label: const Text('아바타에 입히기'),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: '선택 해제',
+              onPressed: () => setState(() => _selected.clear()),
+            ),
+          ],
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _uploading ? null : _pickAndScan,
         icon: _uploading
@@ -92,7 +131,17 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                     ])
                   : ListView.builder(
                       itemCount: _items.length,
-                      itemBuilder: (context, i) => _ItemTile(item: _items[i]),
+                      itemBuilder: (context, i) {
+                        final item = _items[i];
+                        final itemId = item['id'] as int;
+                        final done = item['scan_status'] == 'DONE';
+                        return _ItemTile(
+                          item: item,
+                          selected: _selected.contains(itemId),
+                          // 분석 완료 아이템만 코디에 담을 수 있다
+                          onTap: done ? () => _toggleSelect(itemId) : null,
+                        );
+                      },
                     ),
             ),
     );
@@ -100,9 +149,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 }
 
 class _ItemTile extends StatelessWidget {
-  const _ItemTile({required this.item});
+  const _ItemTile({required this.item, required this.selected, this.onTap});
 
   final Map<String, dynamic> item;
+  final bool selected;
+  final VoidCallback? onTap; // null이면 선택 불가 (분석 전/실패 아이템)
 
   @override
   Widget build(BuildContext context) {
@@ -116,7 +167,12 @@ class _ItemTile extends StatelessWidget {
         .whereType<String>()
         .join(' ');
     return ListTile(
-      leading: const Icon(Icons.checkroom, size: 36),
+      onTap: onTap,
+      selected: selected,
+      leading: selected
+          ? Icon(Icons.check_circle,
+              size: 36, color: Theme.of(context).colorScheme.primary)
+          : const Icon(Icons.checkroom, size: 36),
       title: Text(title.isEmpty ? '아이템 #${item['id']}' : title),
       subtitle: Text('${item['meta_data'] ?? ''}',
           maxLines: 1, overflow: TextOverflow.ellipsis),

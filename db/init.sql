@@ -7,6 +7,8 @@ CREATE TABLE users (
     email         VARCHAR(100) UNIQUE NOT NULL,
     nickname      VARCHAR(30) NOT NULL,
     avatar_url    VARCHAR(255),
+    avatar_bundle_key VARCHAR(255),               -- 3D 아바타 GLB의 S3 키 (AI 워커가 갱신)
+    avatar_config JSONB,                           -- 아바타 베이스 파라미터 (피부/헤어) — 가입 시 1회 생성, 변경 가능
     radar_visible BOOLEAN NOT NULL DEFAULT FALSE,  -- 고스트 모드: 기본 비노출(opt-in)
     birth_date    DATE NOT NULL,                   -- 연령 제한 검증 (만 14세 이상)
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()

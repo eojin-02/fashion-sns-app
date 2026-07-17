@@ -27,6 +27,24 @@ class ApiClient {
     _refreshToken = body['refresh_token'] as String;
   }
 
+  /// 설계서 4.0 — 구글 ID 토큰 → 자체 JWT.
+  /// 신규 유저면 서버가 {signup_required: true}를 반환하며, 이때는 토큰이
+  /// 저장되지 않는다. 닉네임/생년월일을 받아 같은 ID 토큰으로 재호출해 가입한다.
+  Future<Map<String, dynamic>> loginWithGoogle(String idToken,
+      {String? nickname, DateTime? birthDate}) async {
+    final body = await _post('/api/v1/auth/oauth/google', {
+      'id_token': idToken,
+      if (nickname != null) 'nickname': nickname,
+      if (birthDate != null)
+        'birth_date': birthDate.toIso8601String().substring(0, 10),
+    });
+    if (body['signup_required'] != true) {
+      _accessToken = body['access_token'] as String;
+      _refreshToken = body['refresh_token'] as String;
+    }
+    return body;
+  }
+
   Future<void> refreshAuth() async {
     final body = await _post('/api/v1/auth/refresh', {'refresh_token': _refreshToken});
     _accessToken = body['access_token'] as String;
@@ -60,10 +78,21 @@ class ApiClient {
   Future<Map<String, dynamic>> requestScan(String imageKey) =>
       _post('/api/v1/wardrobe/scan', {'image_key': imageKey});
 
+  /// 오늘의 코디 — 선택한 옷장 아이템 조합을 아바타에 입힌다 (설계서 4.2).
+  /// 저장 즉시 서버가 아바타 재생성 잡을 큐에 넣고, 완료는 WebSocket으로 통지된다.
+  Future<Map<String, dynamic>> setCodi(List<int> itemIds) =>
+      _send('PUT', '/api/v1/codi', {'item_ids': itemIds});
+
+  Future<Map<String, dynamic>> getCodi() => _get('/api/v1/codi');
+
   Future<Map<String, dynamic>> getMe() => _get('/api/v1/users/me');
 
   Future<Map<String, dynamic>> setGhostMode({required bool visible}) =>
       _patch('/api/v1/users/me/visibility', {'radar_visible': visible});
+
+  /// 아바타 베이스 파라미터(피부/헤어) 변경 — 저장 즉시 서버가 재생성 잡을 큐에 넣는다.
+  Future<Map<String, dynamic>> updateAvatarConfig(Map<String, String> config) =>
+      _patch('/api/v1/users/me/avatar-config', config);
 
   /// 옷장 — 내 아이템 / 찜 목록
   Future<List<Map<String, dynamic>>> getMyItems() =>
