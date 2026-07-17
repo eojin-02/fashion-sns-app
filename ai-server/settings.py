@@ -1,4 +1,27 @@
 import os
+from pathlib import Path
+
+
+def _load_dotenv() -> None:
+    """프로젝트 루트 .env 로드 — docker compose가 읽는 파일과 동일한 것을 공유한다.
+
+    이미 셸에 설정된 환경변수가 항상 우선한다 ($env:GEMINI_API_KEY 등).
+    외부 의존성 없이 KEY=VALUE 형식만 지원 (주석 #, 빈 줄 무시).
+    """
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if not env_file.is_file():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fsns:fsns@localhost:5432/fsns")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
