@@ -11,6 +11,7 @@ docker compose up -d db redis minio minio-init
 
 
 2.백엔드 스프링
+    cd backend
     .\gradlew.bat bootRun
 
     application.yml 기본값이 전부 localhost를 가리켜서 환경변수 없이 바로 뜹니다 (포트 8080).
@@ -18,9 +19,11 @@ docker compose up -d db redis minio minio-init
     뜨면 http://localhost:8080/swagger-ui.html 에서 API 확인 가능.
 
 3.AI 워커 Python
-
+    cd ai-server
     pip install -r requirements.txt   # 최초 1회 (trimesh/numpy 추가됐으니 한 번은 필수)
     python worker.py
 
 4. UI 플루터
-    flutter pub get -> flutter run
+    cd app
+    flutter pub get
+    flutter run
