@@ -32,14 +32,15 @@ class _AvatarEditorScreenState extends State<AvatarEditorScreen> {
     'pink': ('핑크', Color(0xFFE68CA6)),
   };
   static const _hairStyles = {
+    'auto': '📷 사진 자동',
     'short': '숏컷',
     'long': '롱헤어',
     'bald': '민머리',
   };
 
   String _skin = 'light';
-  String _hairColor = 'black';
-  String _hairStyle = 'short';
+  String _hairColor = 'auto'; // 기본: 스캔 사진에서 감지한 헤어를 따라간다
+  String _hairStyle = 'auto';
   bool _busy = false;
 
   @override
@@ -138,8 +139,25 @@ class _AvatarEditorScreenState extends State<AvatarEditorScreen> {
           const SizedBox(height: 24),
           const Text('헤어 컬러', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          _swatchChips(
-              _hairColors, _hairColor, (v) => setState(() => _hairColor = v)),
+          Wrap(
+            spacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('📷 사진 자동'),
+                selected: _hairColor == 'auto',
+                onSelected: (_) => setState(() => _hairColor = 'auto'),
+              ),
+              ..._hairColors.entries.map((e) {
+                final (label, color) = e.value;
+                return ChoiceChip(
+                  avatar: CircleAvatar(backgroundColor: color, radius: 10),
+                  label: Text(label),
+                  selected: _hairColor == e.key,
+                  onSelected: (_) => setState(() => _hairColor = e.key),
+                );
+              }),
+            ],
+          ),
           const SizedBox(height: 40),
           FilledButton(
             onPressed: _busy ? null : _save,

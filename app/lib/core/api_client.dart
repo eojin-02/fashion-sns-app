@@ -118,6 +118,25 @@ class ApiClient {
   Future<Map<String, dynamic>> getAvatarProfile(String saId) =>
       _get('/api/v1/avatars/$saId');
 
+  /// 코디 반응 — 좋아요는 익명 카운트만, 댓글은 닉네임 표시까지만 (프로필 연결 없음)
+  Future<void> likeCodi(String saId) async =>
+      _post('/api/v1/avatars/$saId/codi/like', {});
+
+  Future<void> unlikeCodi(String saId) async =>
+      _send('DELETE', '/api/v1/avatars/$saId/codi/like', {});
+
+  Future<List<Map<String, dynamic>>> getCodiComments(String saId) =>
+      _getList('/api/v1/avatars/$saId/codi/comments');
+
+  Future<Map<String, dynamic>> postCodiComment(String saId, String content) =>
+      _post('/api/v1/avatars/$saId/codi/comments', {'content': content});
+
+  Future<void> deleteCodiComment(int commentId) async =>
+      _send('DELETE', '/api/v1/codi/comments/$commentId', {});
+
+  Future<void> reportCodiComment(int commentId) async =>
+      _post('/api/v1/codi/comments/$commentId/report', {});
+
   Future<void> blockAvatar(String saId) async =>
       _post('/api/v1/avatars/$saId/block', {});
 

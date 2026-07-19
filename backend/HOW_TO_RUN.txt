@@ -12,6 +12,9 @@ docker compose up -d db redis minio minio-init
 
 2.백엔드 스프링
     cd backend
+    # 에뮬레이터에서 이미지 업로드/3D 아바타를 보려면 이 환경변수가 필수!
+    # (에뮬레이터 안에서 localhost는 에뮬레이터 자신이라 MinIO에 못 닿음)
+    $env:APP_S3_PUBLIC_ENDPOINT = "http://10.0.2.2:9000"
     .\gradlew.bat bootRun
 
     application.yml 기본값이 전부 localhost를 가리켜서 환경변수 없이 바로 뜹니다 (포트 8080).

@@ -21,6 +21,7 @@ class _MyPageState extends State<MyPage> {
   bool _radarVisible = false; // 기본 비노출(opt-in) — 서버 기본값과 동일
   bool _busy = false;
   List<Map<String, dynamic>> _likes = [];
+  Map<String, dynamic>? _myCodi; // 오늘의 코디 + 받은 반응 (미설정이면 null)
 
   @override
   void initState() {
@@ -32,12 +33,19 @@ class _MyPageState extends State<MyPage> {
     try {
       final me = await widget.api.getMe();
       final likes = await widget.api.getMyLikes();
+      Map<String, dynamic>? myCodi;
+      try {
+        myCodi = await widget.api.getCodi();
+      } on ApiException {
+        // 오늘의 코디 미설정(404) — 반응 섹션 숨김
+      }
       if (mounted) {
         setState(() {
           _nickname = me['nickname'] as String? ?? '';
           _avatarBundleUrl = me['avatar_bundle_url'] as String?;
           _radarVisible = me['radar_visible'] as bool? ?? false;
           _likes = likes;
+          _myCodi = myCodi;
         });
       }
     } on ApiException {
@@ -95,6 +103,26 @@ class _MyPageState extends State<MyPage> {
               secondary: Icon(
                   _radarVisible ? Icons.visibility : Icons.visibility_off),
             ),
+            if (_myCodi != null) ...[
+              const Divider(),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text('내 코디가 받은 반응',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.favorite, color: Colors.pink),
+                title: Text('좋아요 ${_myCodi!['like_count'] ?? 0}개'),
+              ),
+              ...((_myCodi!['comments'] as List? ?? [])
+                  .cast<Map<String, dynamic>>()
+                  .map((c) => ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.chat_bubble_outline, size: 18),
+                        title: Text('${c['nickname']}  ${c['content']}'),
+                      ))),
+            ],
             const Divider(),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 16, 16, 8),

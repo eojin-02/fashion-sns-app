@@ -31,19 +31,107 @@ class _AvatarProfileSheetState extends State<_AvatarProfileSheet> {
   String? _error;
   final Set<int> _liked = {};
 
+  // 코디 반응 (좋아요 익명 카운트 + 댓글)
+  int _codiLikeCount = 0;
+  bool _codiLikedByMe = false;
+  List<Map<String, dynamic>> _comments = [];
+  final _commentCtrl = TextEditingController();
+  bool _sendingComment = false;
+
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  @override
+  void dispose() {
+    _commentCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     try {
       final profile = await widget.api.getAvatarProfile(widget.saId);
-      if (mounted) setState(() => _profile = profile);
+      List<Map<String, dynamic>> comments = [];
+      if ((profile['codi_items'] as List? ?? []).isNotEmpty) {
+        try {
+          comments = await widget.api.getCodiComments(widget.saId);
+        } on ApiException {
+          // 코디 없음(404) 등 — 댓글 섹션만 비워둔다
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _profile = profile;
+          _codiLikeCount = (profile['codi_like_count'] as num?)?.toInt() ?? 0;
+          _codiLikedByMe = profile['codi_liked_by_me'] as bool? ?? false;
+          _comments = comments;
+        });
+      }
     } on ApiException {
       // 세션 만료·고스트 전환·차단 등은 전부 404 — 이유는 구분하지 않는다(프라이버시)
       if (mounted) setState(() => _error = '지금은 볼 수 없는 프로필입니다');
+    }
+  }
+
+  Future<void> _toggleCodiLike() async {
+    try {
+      if (_codiLikedByMe) {
+        await widget.api.unlikeCodi(widget.saId);
+        setState(() {
+          _codiLikedByMe = false;
+          _codiLikeCount = _codiLikeCount > 0 ? _codiLikeCount - 1 : 0;
+        });
+      } else {
+        await widget.api.likeCodi(widget.saId);
+        setState(() {
+          _codiLikedByMe = true;
+          _codiLikeCount += 1;
+        });
+      }
+    } on ApiException catch (e) {
+      _snack(e.message);
+    }
+  }
+
+  Future<void> _sendComment() async {
+    final content = _commentCtrl.text.trim();
+    if (content.isEmpty || _sendingComment) return;
+    setState(() => _sendingComment = true);
+    try {
+      final created = await widget.api.postCodiComment(widget.saId, content);
+      if (mounted) {
+        setState(() {
+          _comments.add(created);
+          _commentCtrl.clear();
+        });
+      }
+    } on ApiException catch (e) {
+      _snack(e.message);
+    } finally {
+      if (mounted) setState(() => _sendingComment = false);
+    }
+  }
+
+  Future<void> _deleteComment(int commentId) async {
+    try {
+      await widget.api.deleteCodiComment(commentId);
+      if (mounted) {
+        setState(() =>
+            _comments.removeWhere((c) => c['comment_id'] == commentId));
+      }
+    } on ApiException catch (e) {
+      _snack(e.message);
+    }
+  }
+
+  Future<void> _reportComment(int commentId) async {
+    try {
+      await widget.api.reportCodiComment(commentId);
+      _snack('댓글 신고가 접수되었습니다');
+    } on ApiException catch (e) {
+      _snack(e.message);
     }
   }
 
@@ -97,8 +185,10 @@ class _AvatarProfileSheetState extends State<_AvatarProfileSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // 키보드가 올라오면 입력창이 가려지지 않게 inset만큼 밀어올린다
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 24, 24, bottomInset + 24),
       child: _error != null
           ? SizedBox(height: 120, child: Center(child: Text(_error!)))
           : _profile == null
@@ -113,6 +203,21 @@ class _AvatarProfileSheetState extends State<_AvatarProfileSheet> {
     final profile = _profile!;
     final items = (profile['codi_items'] as List? ?? [])
         .cast<Map<String, dynamic>>();
+    final hasCodi = items.isNotEmpty;
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(child: SingleChildScrollView(child: _content(profile, items))),
+          if (hasCodi) _commentInput(),
+        ],
+      ),
+    );
+  }
+
+  Widget _content(Map<String, dynamic> profile, List<Map<String, dynamic>> items) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -184,6 +289,90 @@ class _AvatarProfileSheetState extends State<_AvatarProfileSheet> {
               ),
             );
           }),
+        if (items.isNotEmpty) ...[
+          const Divider(height: 24),
+          // 코디 전체에 대한 반응 — 좋아요는 익명 카운트만 (누가 눌렀는지 비공개)
+          Row(
+            children: [
+              IconButton(
+                icon: Icon(
+                  _codiLikedByMe ? Icons.favorite : Icons.favorite_border,
+                  color: Colors.pink,
+                ),
+                tooltip: '이 코디 좋아요',
+                onPressed: _toggleCodiLike,
+              ),
+              Text('좋아요 $_codiLikeCount개'),
+              const SizedBox(width: 16),
+              const Icon(Icons.chat_bubble_outline, size: 16),
+              const SizedBox(width: 4),
+              Text('${_comments.length}'),
+            ],
+          ),
+          ..._comments.map(_commentTile),
+        ],
+      ],
+    );
+  }
+
+  Widget _commentTile(Map<String, dynamic> comment) {
+    final commentId = comment['comment_id'] as int;
+    final mine = comment['is_mine'] as bool? ?? false;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text.rich(TextSpan(children: [
+              TextSpan(
+                  text: '${comment['nickname']}  ',
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              TextSpan(text: comment['content'] as String? ?? ''),
+            ])),
+          ),
+          // 본인 댓글은 삭제, 타인 댓글은 신고 (UGC 정책)
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              iconSize: 16,
+              icon: Icon(mine ? Icons.delete_outline : Icons.flag_outlined),
+              tooltip: mine ? '삭제' : '신고',
+              onPressed: () => mine
+                  ? _deleteComment(commentId)
+                  : _reportComment(commentId),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _commentInput() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _commentCtrl,
+            maxLength: 200,
+            decoration: const InputDecoration(
+              hintText: '댓글 달기…',
+              counterText: '',
+              isDense: true,
+            ),
+            onSubmitted: (_) => _sendComment(),
+          ),
+        ),
+        IconButton(
+          icon: _sendingComment
+              ? const SizedBox(
+                  width: 18, height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.send),
+          onPressed: _sendingComment ? null : _sendComment,
+        ),
       ],
     );
   }

@@ -43,6 +43,23 @@ CREATE TABLE daily_codi_item (
 );
 CREATE INDEX idx_daily_codi_item_item ON daily_codi_item(item_id); -- "이 자켓이 포함된 코디" 역방향 조회
 
+-- 코디 반응: 좋아요는 익명 카운트만 노출, 코디 교체 시 전부 리셋 (스토리형 휘발성)
+CREATE TABLE codi_like (
+    codi_id    BIGINT NOT NULL REFERENCES daily_codi(id) ON DELETE CASCADE,
+    user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (codi_id, user_id)
+);
+
+CREATE TABLE codi_comment (
+    id         BIGSERIAL PRIMARY KEY,
+    codi_id    BIGINT NOT NULL REFERENCES daily_codi(id) ON DELETE CASCADE,
+    author_id  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content    VARCHAR(200) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_codi_comment_codi ON codi_comment(codi_id);
+
 -- 찜하기
 CREATE TABLE item_like (
     user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

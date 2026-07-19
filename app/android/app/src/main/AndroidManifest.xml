@@ -8,10 +8,12 @@
             <data android:scheme="https"/>
         </intent>
     </queries>
+    <!-- usesCleartextTraffic: 개발용 http(MinIO/백엔드) 허용 — 운영 HTTPS 전환 시 제거할 것 -->
     <application
         android:label="fashion_radar"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

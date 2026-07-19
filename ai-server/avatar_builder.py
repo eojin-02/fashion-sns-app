@@ -64,14 +64,25 @@ def color_of(text: str | None) -> tuple:
 
 
 def resolve_config(config: dict | None) -> tuple:
-    """avatar_config → (피부 RGB, 헤어 RGB, 헤어스타일). 미지정/오타는 기본값 폴백."""
+    """avatar_config → (피부 RGB, 헤어 RGB, 헤어스타일).
+
+    헤어 우선순위: 수동 선택(팔레트 값) > 사진 감지(detected_* — 워커가 기록) > 기본값.
+    "auto"·미지정·오타는 전부 감지값 폴백 경로를 타므로 워커가 절대 실패하지 않는다.
+    """
     config = config or {}
     skin = SKIN_TONES.get(config.get("skin"), SKIN_TONES["light"])
-    hair_color = HAIR_COLORS.get(config.get("hair_color"), HAIR_COLORS["black"])
+
     style = config.get("hair_style")
-    if style not in HAIR_STYLES:
-        style = "short"
-    return skin, hair_color, style
+    if style not in HAIR_STYLES:  # "auto" 포함 — 사진 감지값으로
+        detected = config.get("detected_hair_style")
+        style = detected if detected in HAIR_STYLES else "short"
+
+    color_key = config.get("hair_color")
+    if color_key not in HAIR_COLORS:  # "auto" 포함 — 사진 감지값으로
+        detected = config.get("detected_hair_color")
+        color_key = detected if detected in HAIR_COLORS else "black"
+
+    return skin, HAIR_COLORS[color_key], style
 
 
 def slot_of(category: str | None) -> str | None:

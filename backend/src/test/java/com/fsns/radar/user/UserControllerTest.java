@@ -12,6 +12,7 @@ import com.fsns.radar.common.ApiException;
 import com.fsns.radar.common.S3UrlSigner;
 import com.fsns.radar.wardrobe.WardrobeService;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +55,20 @@ class UserControllerTest {
         assertThat(body).containsKey("avatar_config");
         verify(userRepository).save(user);
         verify(wardrobeService).enqueueAvatarRebuild(user.getId());
+    }
+
+    @Test
+    void setAvatarConfig_acceptsAuto_andMergePreservesDetectedHair() {
+        // 워커가 기록해둔 사진 감지값이 수동 저장으로 지워지면 안 된다
+        user.setAvatarConfig(new HashMap<>(Map.of(
+                "detected_hair_style", "long", "detected_hair_color", "brown")));
+
+        controller.setAvatarConfig(auth, Map.of("hair_style", "auto", "hair_color", "auto"));
+
+        assertThat(user.getAvatarConfig())
+                .containsEntry("hair_style", "auto")
+                .containsEntry("detected_hair_style", "long")
+                .containsEntry("detected_hair_color", "brown");
     }
 
     @Test

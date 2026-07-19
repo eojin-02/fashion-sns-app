@@ -54,6 +54,23 @@ def test_config_resolution_and_fallbacks():
         {"skin": "??", "hair_style": "mohawk"})[2] == "short"
 
 
+def test_hair_precedence_manual_over_detected_over_default():
+    # "auto" → 사진 감지값(detected_*)을 따른다
+    _, hair, style = avatar_builder.resolve_config({
+        "hair_style": "auto", "hair_color": "auto",
+        "detected_hair_style": "long", "detected_hair_color": "brown"})
+    assert style == "long" and hair == avatar_builder.HAIR_COLORS["brown"]
+    # 수동 선택이 있으면 감지값을 무시한다
+    _, hair, style = avatar_builder.resolve_config({
+        "hair_style": "bald", "hair_color": "pink",
+        "detected_hair_style": "long", "detected_hair_color": "brown"})
+    assert style == "bald" and hair == avatar_builder.HAIR_COLORS["pink"]
+    # 감지값이 쓰레기면 기본값
+    _, hair, style = avatar_builder.resolve_config({
+        "hair_style": "auto", "detected_hair_style": "afro-mullet"})
+    assert style == "short"
+
+
 def test_bald_style_omits_hair_geometry():
     scene = trimesh.load(
         io.BytesIO(avatar_builder.build_avatar_glb({}, {"hair_style": "bald"})),

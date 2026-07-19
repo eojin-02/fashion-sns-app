@@ -1,5 +1,10 @@
 package com.fsns.radar.avatar;
 
+import com.fsns.radar.codi.CodiComment;
+import com.fsns.radar.codi.CodiCommentRepository;
+import com.fsns.radar.codi.CodiLike;
+import com.fsns.radar.codi.CodiLikeRepository;
+import com.fsns.radar.codi.DailyCodi;
 import com.fsns.radar.codi.DailyCodiItemRepository;
 import com.fsns.radar.codi.DailyCodiRepository;
 import com.fsns.radar.common.ApiException;
@@ -13,10 +18,14 @@ import com.fsns.radar.user.UserReportRepository;
 import com.fsns.radar.user.UserRepository;
 import com.fsns.radar.wardrobe.ClothesItem;
 import com.fsns.radar.wardrobe.ClothesItemRepository;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -39,6 +48,9 @@ public class AvatarService {
     private final DailyCodiItemRepository dailyCodiItemRepository;
     private final ClothesItemRepository clothesItemRepository;
     private final S3UrlSigner s3UrlSigner;
+    private final CodiLikeRepository codiLikeRepository;
+    private final CodiCommentRepository codiCommentRepository;
+    private final StringRedisTemplate redis;
 
     public AvatarService(RadarService radarService,
                          UserRepository userRepository,
@@ -47,7 +59,10 @@ public class AvatarService {
                          DailyCodiRepository dailyCodiRepository,
                          DailyCodiItemRepository dailyCodiItemRepository,
                          ClothesItemRepository clothesItemRepository,
-                         S3UrlSigner s3UrlSigner) {
+                         S3UrlSigner s3UrlSigner,
+                         CodiLikeRepository codiLikeRepository,
+                         CodiCommentRepository codiCommentRepository,
+                         StringRedisTemplate redis) {
         this.radarService = radarService;
         this.userRepository = userRepository;
         this.userBlockRepository = userBlockRepository;
@@ -56,16 +71,20 @@ public class AvatarService {
         this.dailyCodiItemRepository = dailyCodiItemRepository;
         this.clothesItemRepository = clothesItemRepository;
         this.s3UrlSigner = s3UrlSigner;
+        this.codiLikeRepository = codiLikeRepository;
+        this.codiCommentRepository = codiCommentRepository;
+        this.redis = redis;
     }
 
     public Map<String, Object> profile(Long viewerId, String sessionAvatarId) {
         User target = resolveVisibleTarget(viewerId, sessionAvatarId);
+        Optional<DailyCodi> codi = dailyCodiRepository.findByUserId(target.getId());
 
         // 오늘의 코디 아이템 — 찜하기를 위해 item_id는 노출된다.
         // (아이템은 유저가 아닌 '물건'의 영속 ID이며 찜 테이블이 참조해야 함)
-        List<Map<String, Object>> items = dailyCodiRepository.findByUserId(target.getId())
-                .map(codi -> clothesItemRepository
-                        .findAllById(dailyCodiItemRepository.findItemIds(codi.getId()))
+        List<Map<String, Object>> items = codi
+                .map(c -> clothesItemRepository
+                        .findAllById(dailyCodiItemRepository.findItemIds(c.getId()))
                         .stream().map(AvatarService::itemDto).toList())
                 .orElse(List.of());
 
@@ -79,7 +98,92 @@ public class AvatarService {
                 .findFirstByUserIdOrderByCreatedAtDesc(target.getId())
                 .map(ClothesItem::summary).orElse("스타일 정보 없음"));
         profile.put("codi_items", items);
+        // 코디 반응 — 좋아요는 익명 카운트만 (누른 사람 목록은 어떤 API로도 노출 안 함)
+        profile.put("codi_like_count",
+                codi.map(c -> codiLikeRepository.countByIdCodiId(c.getId())).orElse(0L));
+        profile.put("codi_liked_by_me",
+                codi.map(c -> codiLikeRepository.existsById(
+                        new CodiLike.Id(viewerId, c.getId()))).orElse(false));
+        profile.put("codi_comment_count",
+                codi.map(c -> codiCommentRepository.countByCodiId(c.getId())).orElse(0L));
         return profile;
+    }
+
+    /** 코디 좋아요 — 상대 착장에 대한 반응. 자기 자신에게는 불가. */
+    public void likeCodi(Long viewerId, String sessionAvatarId) {
+        DailyCodi codi = visibleCodi(viewerId, sessionAvatarId);
+        if (codi.getUserId().equals(viewerId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "자신의 코디에는 좋아요를 누를 수 없습니다");
+        }
+        codiLikeRepository.save(new CodiLike(viewerId, codi.getId()));
+    }
+
+    public void unlikeCodi(Long viewerId, String sessionAvatarId) {
+        DailyCodi codi = visibleCodi(viewerId, sessionAvatarId);
+        codiLikeRepository.deleteById(new CodiLike.Id(viewerId, codi.getId()));
+    }
+
+    /** 코디 댓글 목록 — 차단 관계 작성자의 댓글은 숨긴다. 닉네임만 노출, 프로필 연결 없음. */
+    public List<Map<String, Object>> codiComments(Long viewerId, String sessionAvatarId) {
+        DailyCodi codi = visibleCodi(viewerId, sessionAvatarId);
+        return commentDtos(viewerId, codi.getId(),
+                userBlockRepository.findAllRelatedUserIds(viewerId));
+    }
+
+    public Map<String, Object> addCodiComment(Long viewerId, String sessionAvatarId,
+                                              String content) {
+        DailyCodi codi = visibleCodi(viewerId, sessionAvatarId);
+        if (codi.getUserId().equals(viewerId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "자신의 코디에는 댓글을 쓸 수 없습니다");
+        }
+        // 도배 방지 — 유저당 10초 쿨다운 (Redis TTL)
+        Boolean first = redis.opsForValue().setIfAbsent(
+                "cooldown:comment:" + viewerId, "1", Duration.ofSeconds(10));
+        if (Boolean.FALSE.equals(first)) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "댓글은 10초에 한 번 쓸 수 있습니다");
+        }
+        CodiComment saved = codiCommentRepository.save(
+                new CodiComment(codi.getId(), viewerId, content.trim()));
+        return commentDto(saved, userRepository.findById(viewerId)
+                .map(User::getNickname).orElse(""), true);
+    }
+
+    /** 코디 소유자용 — 내 코디에 달린 반응 (마이페이지). 차단 유저 댓글은 동일하게 숨김. */
+    public Map<String, Object> myCodiReactions(Long ownerId, Long codiId) {
+        Map<String, Object> reactions = new HashMap<>();
+        reactions.put("like_count", codiLikeRepository.countByIdCodiId(codiId));
+        reactions.put("comments", commentDtos(ownerId, codiId,
+                userBlockRepository.findAllRelatedUserIds(ownerId)));
+        return reactions;
+    }
+
+    private List<Map<String, Object>> commentDtos(Long viewerId, Long codiId,
+                                                  Set<Long> excludedAuthors) {
+        List<CodiComment> comments = codiCommentRepository.findAllByCodiIdOrderByIdAsc(codiId)
+                .stream().filter(c -> !excludedAuthors.contains(c.getAuthorId())).toList();
+        Map<Long, String> nicknames = userRepository
+                .findAllById(comments.stream().map(CodiComment::getAuthorId).distinct().toList())
+                .stream().collect(Collectors.toMap(User::getId, User::getNickname));
+        return comments.stream()
+                .map(c -> commentDto(c, nicknames.getOrDefault(c.getAuthorId(), ""),
+                        c.getAuthorId().equals(viewerId)))
+                .toList();
+    }
+
+    private static Map<String, Object> commentDto(CodiComment comment, String nickname,
+                                                  boolean mine) {
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("comment_id", comment.getId());
+        dto.put("nickname", nickname);   // 작성자 식별은 닉네임 표시까지만 — saId/user_id 미노출
+        dto.put("content", comment.getContent());
+        dto.put("is_mine", mine);
+        return dto;
+    }
+
+    private DailyCodi visibleCodi(Long viewerId, String sessionAvatarId) {
+        User target = resolveVisibleTarget(viewerId, sessionAvatarId);
+        return dailyCodiRepository.findByUserId(target.getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "오늘의 코디가 없습니다"));
     }
 
     /** 차단 — 대상의 user_id는 서버 내부에서만 해석된다. */

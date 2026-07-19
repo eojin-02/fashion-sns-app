@@ -8,9 +8,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fsns.radar.avatar.AvatarService;
 import com.fsns.radar.common.ApiException;
 import com.fsns.radar.feed.FeedPublisher;
 import com.fsns.radar.radar.RadarService;
+import com.fsns.radar.user.UserReport;
+import com.fsns.radar.user.UserReportRepository;
 import com.fsns.radar.wardrobe.ClothesItem;
 import com.fsns.radar.wardrobe.ClothesItemRepository;
 import com.fsns.radar.wardrobe.WardrobeService;
@@ -36,13 +39,18 @@ class CodiControllerTest {
     private final FeedPublisher feedPublisher = mock(FeedPublisher.class);
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
     private final WardrobeService wardrobeService = mock(WardrobeService.class);
+    private final CodiLikeRepository codiLikeRepository = mock(CodiLikeRepository.class);
+    private final CodiCommentRepository codiCommentRepository = mock(CodiCommentRepository.class);
+    private final UserReportRepository userReportRepository = mock(UserReportRepository.class);
+    private final AvatarService avatarService = mock(AvatarService.class);
 
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, String> valueOps = mock(ValueOperations.class);
 
     private final CodiController controller = new CodiController(
             codiRepository, codiItemRepository, clothesItemRepository,
-            radarService, feedPublisher, redis, wardrobeService);
+            radarService, feedPublisher, redis, wardrobeService,
+            codiLikeRepository, codiCommentRepository, userReportRepository, avatarService);
 
     private final Authentication auth = mock(Authentication.class);
 
@@ -64,6 +72,44 @@ class CodiControllerTest {
         controller.upsert(auth, new CodiController.CodiRequest(List.of(10L)));
 
         verify(wardrobeService).enqueueAvatarRebuild(1L);
+        // 코디 교체 = 새 무대 — 이전 착장의 반응은 리셋되어야 한다
+        verify(codiLikeRepository).deleteAllByIdCodiId(3L);
+        verify(codiCommentRepository).deleteAllByCodiId(3L);
+    }
+
+    @Test
+    void deleteComment_onlyAuthorCanDelete() {
+        CodiComment mine = mock(CodiComment.class);
+        when(mine.getAuthorId()).thenReturn(1L);
+        when(codiCommentRepository.findById(7L)).thenReturn(Optional.of(mine));
+
+        controller.deleteComment(auth, 7L);
+        verify(codiCommentRepository).delete(mine);
+
+        // 타인 댓글 — 존재 여부도 알리지 않는 404
+        CodiComment others = mock(CodiComment.class);
+        when(others.getAuthorId()).thenReturn(99L);
+        when(codiCommentRepository.findById(8L)).thenReturn(Optional.of(others));
+        assertThatThrownBy(() -> controller.deleteComment(auth, 8L))
+                .isInstanceOf(ApiException.class);
+        verify(codiCommentRepository, never()).delete(others);
+    }
+
+    @Test
+    void reportComment_recordsAuthorWithSnippet_andRejectsSelfReport() {
+        CodiComment others = mock(CodiComment.class);
+        when(others.getAuthorId()).thenReturn(99L);
+        when(others.getContent()).thenReturn("불쾌한 내용");
+        when(codiCommentRepository.findById(7L)).thenReturn(Optional.of(others));
+
+        controller.reportComment(auth, 7L);
+        verify(userReportRepository).save(any(UserReport.class));
+
+        CodiComment mine = mock(CodiComment.class);
+        when(mine.getAuthorId()).thenReturn(1L);
+        when(codiCommentRepository.findById(8L)).thenReturn(Optional.of(mine));
+        assertThatThrownBy(() -> controller.reportComment(auth, 8L))
+                .isInstanceOf(ApiException.class);
     }
 
     @Test

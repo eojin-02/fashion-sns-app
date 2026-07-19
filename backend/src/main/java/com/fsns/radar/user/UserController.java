@@ -31,11 +31,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/users")
 public class UserController {
 
-    /** 아바타 베이스 파라미터 허용값 — ai-server/avatar_builder.py의 팔레트와 동기 유지 */
+    /** 아바타 베이스 파라미터 허용값 — ai-server/avatar_builder.py의 팔레트와 동기 유지.
+     *  "auto" = 스캔 사진에서 감지한 헤어(detected_*)를 따라간다 (기본값). */
     private static final Map<String, Set<String>> AVATAR_CONFIG_ALLOWED = Map.of(
             "skin", Set.of("light", "tan", "deep"),
-            "hair_color", Set.of("black", "brown", "blonde", "red", "blue", "pink"),
-            "hair_style", Set.of("short", "long", "bald"));
+            "hair_color", Set.of("auto", "black", "brown", "blonde", "red", "blue", "pink"),
+            "hair_style", Set.of("auto", "short", "long", "bald"));
 
     private final UserRepository userRepository;
     private final UserBlockRepository userBlockRepository;
@@ -84,7 +85,11 @@ public class UserController {
             }
         }
         User user = currentUser(auth);
-        user.setAvatarConfig(new HashMap<>(req));
+        // 교체가 아닌 병합 — 워커가 기록한 사진 감지값(detected_*)을 지우면 안 된다
+        Map<String, Object> config = user.getAvatarConfig() == null
+                ? new HashMap<>() : new HashMap<>(user.getAvatarConfig());
+        config.putAll(req);
+        user.setAvatarConfig(config);
         userRepository.save(user);
         wardrobeService.enqueueAvatarRebuild(user.getId());
         return Map.of("avatar_config", user.getAvatarConfig());
