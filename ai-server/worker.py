@@ -134,19 +134,16 @@ def analyze_with_gemini(image_bytes: bytes) -> dict:
 
 
 # ---------------------------------------------------------------- 옷 영역 크롭
-def crop_texture_bytes(image_bytes: bytes, box) -> bytes | None:
-    """Gemini가 준 정규화 박스로 옷 영역을 잘라 텍스처용 JPEG로 만든다.
-
-    무늬·주름 음영이 아바타 파트에 그대로 실리는 재료. 박스가 이상하면 None(단색 폴백).
-    """
+def _crop_region(image_bytes: bytes, box):
+    """정규화 박스(0~1 또는 0~1000 스케일)로 옷 영역 PIL 이미지를 만든다. 실패 시 None."""
     try:
         from PIL import Image
         values = [float(v) for v in box]
         if len(values) != 4:
             return None
-        # 모델이 0~1 비율 대신 0~1000 스케일로 답하는 경우 방어
-        if any(v > 1.0 for v in values):
-            values = [v / 1000.0 for v in values]
+        # 모델이 0~1 비율 대신 0~1000 스케일(또는 축별 혼합!)로 답하는 경우 방어 —
+        # 실측: [0.372, 33, 0.765, 375] 처럼 x만 소수인 응답도 온다. 값별로 정규화.
+        values = [v / 1000.0 if v > 1.0 else v for v in values]
         x0, y0, x1, y1 = (max(0.0, min(1.0, v)) for v in values)
     except (TypeError, ValueError):
         return None
@@ -155,19 +152,40 @@ def crop_texture_bytes(image_bytes: bytes, box) -> bytes | None:
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
-        crop = img.crop((int(x0 * w), int(y0 * h), int(x1 * w), int(y1 * h)))
-        # 픽셀 아트화 — 저해상도 다운샘플 + 색 양자화 + 최근접 업스케일.
-        # 사진을 그대로 바르면 조명/블러가 지저분한데, 픽셀화하면 복셀 캐릭터가
-        # 착장을 미러링하는 "의도된 스타일"로 읽힌다 (무늬·명암은 유지됨).
-        crop = crop.resize((24, 24), Image.LANCZOS)
-        crop = crop.quantize(colors=12).convert("RGB")
-        crop = crop.resize((240, 240), Image.NEAREST)
-        out = io.BytesIO()
-        crop.save(out, format="PNG")  # 픽셀 경계 보존 (JPEG는 뭉갬)
-        return out.getvalue()
+        return img.crop((int(x0 * w), int(y0 * h), int(x1 * w), int(y1 * h)))
     except Exception:
-        log.exception("옷 영역 크롭 실패 — 단색 폴백")
+        log.exception("옷 영역 크롭 실패")
         return None
+
+
+def crop_texture_bytes(image_bytes: bytes, box) -> bytes | None:
+    """아바타 텍스처용 — 픽셀 아트화된 크롭 (PNG).
+
+    저해상도 다운샘플 + 색 양자화 + 최근접 업스케일. 사진을 그대로 바르면
+    조명/블러가 지저분한데, 픽셀화하면 복셀 캐릭터가 착장을 미러링하는
+    "의도된 스타일"로 읽힌다 (무늬·명암은 유지됨).
+    """
+    crop = _crop_region(image_bytes, box)
+    if crop is None:
+        return None
+    from PIL import Image
+    crop = crop.resize((24, 24), Image.LANCZOS)
+    crop = crop.quantize(colors=12).convert("RGB")
+    crop = crop.resize((240, 240), Image.NEAREST)
+    out = io.BytesIO()
+    crop.save(out, format="PNG")  # 픽셀 경계 보존 (JPEG는 뭉갬)
+    return out.getvalue()
+
+
+def crop_photo_bytes(image_bytes: bytes, box) -> bytes | None:
+    """옷장 표시용 — 픽셀화하지 않은 실사 크롭 (JPEG). 앱 아이템 카드에 노출."""
+    crop = _crop_region(image_bytes, box)
+    if crop is None:
+        return None
+    crop.thumbnail((512, 512))
+    out = io.BytesIO()
+    crop.save(out, format="JPEG", quality=85)
+    return out.getvalue()
 
 
 # ---------------------------------------------------------------- 작업 처리
@@ -221,13 +239,19 @@ def process(job: dict) -> None:
                     if k not in ("category", "brand_guess")}
             brand = detected.get("brand_guess")
 
-            # 옷 영역 크롭 → S3 업로드 → 아바타 텍스처 재료 (실패 시 단색 폴백)
+            # 옷 영역 크롭 → S3 업로드: 픽셀판(아바타 텍스처) + 실사판(옷장 카드 사진)
             crop = crop_texture_bytes(analysis_image, detected.get("box"))
             if crop is not None:
-                crop_key = f"crops/u{user_id}/{uuid.uuid4()}.jpg"
+                crop_key = f"crops/u{user_id}/{uuid.uuid4()}.png"
                 s3.put_object(Bucket=settings.S3_BUCKET, Key=crop_key,
-                              Body=crop, ContentType="image/jpeg")
+                              Body=crop, ContentType="image/png")
                 meta["crop_key"] = crop_key
+            photo = crop_photo_bytes(analysis_image, detected.get("box"))
+            if photo is not None:
+                photo_key = f"crops/u{user_id}/{uuid.uuid4()}-photo.jpg"
+                s3.put_object(Bucket=settings.S3_BUCKET, Key=photo_key,
+                              Body=photo, ContentType="image/jpeg")
+                meta["photo_key"] = photo_key
             if index == 0:
                 if product.get("title"):
                     meta["product_name"] = product["title"]

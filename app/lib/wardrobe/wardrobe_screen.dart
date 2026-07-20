@@ -185,27 +185,63 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                       Center(child: Text('아직 등록된 옷이 없습니다.\n오른쪽 아래 버튼으로 첫 옷을 등록해보세요!',
                           textAlign: TextAlign.center)),
                     ])
-                  : ListView.builder(
-                      itemCount: _items.length,
-                      itemBuilder: (context, i) {
-                        final item = _items[i];
-                        final itemId = item['id'] as int;
-                        final done = item['scan_status'] == 'DONE';
-                        return _ItemTile(
-                          item: item,
-                          selected: _selected.contains(itemId),
-                          // 분석 완료 아이템만 코디에 담을 수 있다
-                          onTap: done ? () => _toggleSelect(itemId) : null,
-                        );
-                      },
-                    ),
+                  : ListView(children: _categoryFolders()),
             ),
     );
   }
+
+  static const _categoryOrder = ['아우터', '상의', '하의', '신발', '액세서리'];
+
+  /// 카테고리별 폴더(펼침/접힘) + 폴더 안 2열 그리드
+  List<Widget> _categoryFolders() {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final item in _items) {
+      final category = item['category'] as String? ?? '분석 중';
+      grouped.putIfAbsent(category, () => []).add(item);
+    }
+    final orderedKeys = [
+      ..._categoryOrder.where(grouped.containsKey),
+      ...grouped.keys.where((k) => !_categoryOrder.contains(k)),
+    ];
+    return orderedKeys.map((category) {
+      final items = grouped[category]!;
+      return ExpansionTile(
+        initiallyExpanded: true,
+        leading: const Icon(Icons.folder_outlined),
+        title: Text('$category (${items.length})',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        children: [
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2, // 한 줄에 2개
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 0.78,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, i) {
+              final item = items[i];
+              final itemId = item['id'] as int;
+              final done = item['scan_status'] == 'DONE';
+              return _ItemCard(
+                item: item,
+                selected: _selected.contains(itemId),
+                // 분석 완료 아이템만 코디에 담을 수 있다
+                onTap: done ? () => _toggleSelect(itemId) : null,
+              );
+            },
+          ),
+        ],
+      );
+    }).toList();
+  }
 }
 
-class _ItemTile extends StatelessWidget {
-  const _ItemTile({required this.item, required this.selected, this.onTap});
+class _ItemCard extends StatelessWidget {
+  const _ItemCard({required this.item, required this.selected, this.onTap});
 
   final Map<String, dynamic> item;
   final bool selected;
@@ -215,27 +251,81 @@ class _ItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = item['scan_status'] as String? ?? 'PENDING';
     final (chipColor, chipLabel) = switch (status) {
-      'DONE' => (Colors.green, '분석 완료'),
-      'FAILED' => (Colors.red, '분석 실패'),
+      'DONE' => (Colors.green, '완료'),
+      'FAILED' => (Colors.red, '실패'),
       _ => (Colors.orange, '분석 중'),
     };
-    final title = [item['brand_info'], item['category']]
+    final photoUrl = item['photo_url'] as String?;
+    final meta = item['meta_data'];
+    final color = meta is Map ? meta['color'] as String? : null;
+    final title = [item['brand_info'], color, item['category']]
         .whereType<String>()
-        .join(' ');
-    return ListTile(
+        .join(' · ');
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return GestureDetector(
       onTap: onTap,
-      selected: selected,
-      leading: selected
-          ? Icon(Icons.check_circle,
-              size: 36, color: Theme.of(context).colorScheme.primary)
-          : const Icon(Icons.checkroom, size: 36),
-      title: Text(title.isEmpty ? '아이템 #${item['id']}' : title),
-      subtitle: Text('${item['meta_data'] ?? ''}',
-          maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: Chip(
-        label: Text(chipLabel, style: const TextStyle(fontSize: 12)),
-        backgroundColor: chipColor.withValues(alpha: 0.15),
-        side: BorderSide(color: chipColor),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? primary : Colors.white24,
+            width: selected ? 2.5 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 실사 크롭 사진 — 없으면(구버전 스캔) 아이콘 폴백
+                  if (photoUrl != null && photoUrl.isNotEmpty)
+                    Image.network(
+                      photoUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          const Center(child: Icon(Icons.checkroom, size: 48)),
+                    )
+                  else
+                    const Center(child: Icon(Icons.checkroom, size: 48)),
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: chipColor.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(chipLabel,
+                          style: const TextStyle(
+                              fontSize: 10, color: Colors.white)),
+                    ),
+                  ),
+                  if (selected)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Icon(Icons.check_circle, color: primary),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                title.isEmpty ? '아이템 #${item['id']}' : title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

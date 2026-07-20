@@ -1,6 +1,7 @@
 package com.fsns.radar.wardrobe;
 
 import com.fsns.radar.common.ApiException;
+import com.fsns.radar.common.S3UrlSigner;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.HashMap;
@@ -24,13 +25,16 @@ public class WardrobeController {
     private final WardrobeService wardrobeService;
     private final ClothesItemRepository clothesItemRepository;
     private final ItemLikeRepository itemLikeRepository;
+    private final S3UrlSigner s3UrlSigner;
 
     public WardrobeController(WardrobeService wardrobeService,
                               ClothesItemRepository clothesItemRepository,
-                              ItemLikeRepository itemLikeRepository) {
+                              ItemLikeRepository itemLikeRepository,
+                              S3UrlSigner s3UrlSigner) {
         this.wardrobeService = wardrobeService;
         this.clothesItemRepository = clothesItemRepository;
         this.itemLikeRepository = itemLikeRepository;
+        this.s3UrlSigner = s3UrlSigner;
     }
 
     /** product_url은 선택 — 쇼핑몰 상품 페이지 (태깅 강화·사러 가기 링크) */
@@ -57,7 +61,7 @@ public class WardrobeController {
     @GetMapping("/items")
     public List<Map<String, Object>> myItems(Authentication auth) {
         return clothesItemRepository.findAllByUserIdOrderByCreatedAtDesc((Long) auth.getPrincipal())
-                .stream().map(WardrobeController::toDto).toList();
+                .stream().map(this::toDto).toList();
     }
 
     @GetMapping("/items/{itemId}")
@@ -66,6 +70,7 @@ public class WardrobeController {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "아이템을 찾을 수 없습니다"));
         return toDto(item);
     }
+
 
     /** 찜하기 (설계서 1.2 MVP) */
     @PostMapping("/items/{itemId}/like")
@@ -87,10 +92,10 @@ public class WardrobeController {
     @GetMapping("/likes")
     public List<Map<String, Object>> likes(Authentication auth) {
         return itemLikeRepository.findLikedItems((Long) auth.getPrincipal())
-                .stream().map(WardrobeController::toDto).toList();
+                .stream().map(this::toDto).toList();
     }
 
-    private static Map<String, Object> toDto(ClothesItem item) {
+    private Map<String, Object> toDto(ClothesItem item) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("id", item.getId());
         dto.put("category", item.getCategory());
@@ -99,6 +104,10 @@ public class WardrobeController {
         dto.put("image_key", item.getImageKey());
         dto.put("product_url", item.getProductUrl());
         dto.put("scan_status", item.getScanStatus());
+        // 옷장 카드용 실사 크롭 사진 (워커가 저장한 photo_key) — 없으면 null
+        Map<String, Object> meta = item.getMetaData();
+        dto.put("photo_url", meta == null ? null
+                : s3UrlSigner.signGet((String) meta.get("photo_key")));
         return dto;
     }
 }

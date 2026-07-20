@@ -40,6 +40,15 @@ def test_thousand_scale_box_is_normalized():
     assert r > 150 and g < 100
 
 
+def test_mixed_scale_box_is_normalized_per_value():
+    # 실측 사례: x는 0~1 소수, y는 0~1000 정수로 섞여 오는 응답
+    crop = worker.crop_photo_bytes(_sample_jpeg(), [0.0, 500, 1.0, 1000])
+    assert crop is not None
+    img = Image.open(io.BytesIO(crop))
+    r, g, b = img.resize((1, 1)).getpixel((0, 0))
+    assert r > 150 and g < 100
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

@@ -85,7 +85,7 @@ public class AvatarService {
         List<Map<String, Object>> items = codi
                 .map(c -> clothesItemRepository
                         .findAllById(dailyCodiItemRepository.findItemIds(c.getId()))
-                        .stream().map(AvatarService::itemDto).toList())
+                        .stream().map(this::itemDto).toList())
                 .orElse(List.of());
 
         Map<String, Object> profile = new HashMap<>();
@@ -226,13 +226,16 @@ public class AvatarService {
         return new ApiException(HttpStatus.NOT_FOUND, "아바타를 찾을 수 없습니다");
     }
 
-    private static Map<String, Object> itemDto(ClothesItem item) {
+    private Map<String, Object> itemDto(ClothesItem item) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("item_id", item.getId());
         dto.put("category", item.getCategory());
         dto.put("brand_info", item.getBrandInfo());
         dto.put("image_key", item.getImageKey());
         dto.put("product_url", item.getProductUrl());  // 찜 → "사러 가기" 연결
+        Map<String, Object> meta = item.getMetaData();
+        dto.put("photo_url", meta == null ? null
+                : s3UrlSigner.signGet((String) meta.get("photo_key")));
         return dto;
     }
 }
