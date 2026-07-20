@@ -31,6 +31,9 @@ class AvatarViewer extends StatelessWidget {
     return SizedBox(
       height: height,
       child: ModelViewer(
+        // WebView 기반이라 src가 바뀌어도 자동 리로드되지 않는다 —
+        // URL을 key로 걸어 새로고침(새 presigned URL)마다 위젯을 재생성해 반영.
+        key: ValueKey(bundleUrl),
         src: bundleUrl!,
         cameraControls: true, // 드래그 회전 — 앞뒤 양옆 전부
         autoRotate: true,

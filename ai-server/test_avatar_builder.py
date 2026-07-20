@@ -27,10 +27,11 @@ def test_bare_outfit_omits_optional_parts():
 
 
 def test_color_matching_korean_and_english():
-    assert avatar_builder.color_of("블랙") == (0.12, 0.12, 0.12)
-    assert avatar_builder.color_of("Light Blue") == (0.20, 0.35, 0.70)
-    assert avatar_builder.color_of("형광 연두") == (0.60, 0.60, 0.65)  # 미지정 → 기본색
-    assert avatar_builder.color_of(None) == (0.60, 0.60, 0.65)
+    # 한/영 동의어가 같은 색으로, 모르는 색은 기본색으로 (팔레트 값 자체는 검사하지 않음)
+    assert avatar_builder.color_of("블랙") == avatar_builder.color_of("black")
+    assert avatar_builder.color_of("Light Blue") == avatar_builder.color_of("청바지")
+    assert avatar_builder.color_of("블랙") != avatar_builder.color_of(None)
+    assert avatar_builder.color_of("형광 연두") == avatar_builder.color_of(None)  # 미지정 → 기본색
 
 
 def test_category_slot_matching():
@@ -86,7 +87,41 @@ def test_outfit_from_items_keeps_first_per_slot():
         {"category": "상의", "meta_data": {"color": "화이트"}},  # 같은 슬롯 — 무시
         {"category": "하의", "meta_data": None},
     ])
-    assert outfit == {"top": "블랙", "bottom": ""}
+    assert outfit == {"top": {"color": "블랙", "category": "상의", "crop_key": None},
+                      "bottom": {"color": "", "category": "하의", "crop_key": None}}
+
+
+def test_texture_is_embedded_in_glb():
+    from PIL import Image
+    tex = Image.new("RGB", (64, 64), (200, 30, 30))
+    glb = avatar_builder.build_avatar_glb(
+        {"top": {"color": "레드", "category": "상의", "texture": tex}})
+    scene = trimesh.load(io.BytesIO(glb), file_type="glb")
+    torso = scene.geometry["torso"]
+    # UV와 텍스처가 GLB에 실려 있어야 한다 (앱 뷰어가 그대로 렌더)
+    assert torso.visual.uv is not None and len(torso.visual.uv) == len(torso.vertices)
+    assert torso.visual.material.baseColorTexture is not None
+    # 텍스처 없는 파트는 기존처럼 단색
+    assert scene.geometry["head"].visual.material.baseColorTexture is None
+
+
+def test_category_shapes_skirt_shorts_hood():
+    # 스커트: 스커트 지오메트리 + 맨다리(하의 색이 다리에 안 감)
+    scene = trimesh.load(io.BytesIO(avatar_builder.build_avatar_glb(
+        {"bottom": {"color": "블랙", "category": "스커트"}})), file_type="glb")
+    assert "skirt" in scene.geometry
+    # 반바지: 아랫다리(피부) 파트가 분리된다
+    scene = trimesh.load(io.BytesIO(avatar_builder.build_avatar_glb(
+        {"bottom": {"color": "블랙", "category": "반바지"}})), file_type="glb")
+    assert "leg-l-lower" in scene.geometry and "skirt" not in scene.geometry
+    # 후드: 후드 덩어리 추가
+    scene = trimesh.load(io.BytesIO(avatar_builder.build_avatar_glb(
+        {"top": {"color": "그레이", "category": "후드"}})), file_type="glb")
+    assert "hood" in scene.geometry
+    # 구형 문자열 형식도 여전히 동작 (하위 호환)
+    scene = trimesh.load(io.BytesIO(avatar_builder.build_avatar_glb(
+        {"top": "블랙"})), file_type="glb")
+    assert "torso" in scene.geometry and "eye-l" in scene.geometry
 
 
 if __name__ == "__main__":
