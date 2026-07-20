@@ -42,7 +42,17 @@ def blur_bystander_faces(image_bytes: bytes) -> bytes:
 
     MVP 휴리스틱: 검출된 얼굴 중 가장 큰 얼굴을 촬영자 본인으로 간주하고
     나머지를 블러 처리한다. Vision API 호출 전 로컬 선처리라 추가 비용이 없다.
+    선처리는 best-effort — 환경 문제(opencv 미설치/버전 비호환)로 스캔 전체를
+    실패시키지 않고 원본으로 진행한다.
     """
+    try:
+        return _blur_bystander_faces(image_bytes)
+    except Exception:
+        log.exception("얼굴 블러 실패 — 원본으로 진행")
+        return image_bytes
+
+
+def _blur_bystander_faces(image_bytes: bytes) -> bytes:
     try:
         import cv2
         import numpy as np
@@ -73,20 +83,24 @@ def blur_bystander_faces(image_bytes: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------- Gemini 태깅
-ANALYSIS_PROMPT = """이 사진 속 착장을 분석해 JSON으로만 답하세요:
-{"category": "상의/하의/아우터/신발/액세서리 중 하나",
- "brand_guess": "추정 브랜드 또는 null",
- "color": "주요 색상",
- "style_tags": ["스트릿", "미니멀" 등 태그 배열],
+ANALYSIS_PROMPT = """이 사진에 보이는 모든 의류/패션 아이템을 분석해 JSON으로만 답하세요:
+{"items": [
+  {"category": "상의/하의/아우터/신발/액세서리 중 하나",
+   "brand_guess": "추정 브랜드 또는 null",
+   "color": "주요 색상",
+   "style_tags": ["스트릿", "미니멀" 등 태그 배열]}
+ ],
  "hair": {"style": "short/long/bald 중 하나", "color": "black/brown/blonde/red/blue/pink 중 가장 가까운 것"}}
-사람 머리가 보이지 않으면 "hair"는 null로 하세요."""
+착용 중인 아이템을 각각 하나의 원소로 넣으세요 (전신 사진이면 보통 2~4개, 단일 상품 사진이면 1개).
+가장 대표적인 아이템을 배열의 첫 번째로 하세요. 사람 머리가 보이지 않으면 "hair"는 null."""
 
 
 def analyze_with_gemini(image_bytes: bytes) -> dict:
     if not settings.GEMINI_API_KEY:
         log.info("GEMINI_API_KEY 없음 — 스텁 태깅 사용")
-        return {"category": "상의", "brand_guess": None,
-                "color": "unknown", "style_tags": ["stub"]}
+        return {"items": [{"category": "상의", "brand_guess": None,
+                           "color": "unknown", "style_tags": ["stub"]}],
+                "hair": None}
 
     from google import genai
     from google.genai import types
@@ -137,8 +151,9 @@ def process(job: dict) -> None:
             log.warning("상품컷 다운로드 실패 item=%s — 촬영본으로 분석", item_id)
 
     # 동일 이미지 해시 캐싱 — 같은 사진 재분석 방지 (설계서 2.6). 분석에 쓴 이미지 기준.
+    # 키에 결과 형식 버전 포함 — 프롬프트/스키마가 바뀌면 옛 캐시를 자연 무효화.
     digest = hashlib.sha256(analysis_image).hexdigest()
-    cache_key = f"imghash:{digest}"
+    cache_key = f"imghash:{digest}:v2"
     cached = r.get(cache_key)
     if cached:
         result = json.loads(cached)
@@ -147,20 +162,36 @@ def process(job: dict) -> None:
         result = analyze_with_gemini(analysis_image)
         r.set(cache_key, json.dumps(result, ensure_ascii=False), ex=60 * 60 * 24 * 30)
 
-    meta = {k: v for k, v in result.items()
-            if k not in ("category", "brand_guess", "hair")}
-    if product.get("title"):
-        meta["product_name"] = product["title"]
-    # 브랜드: Vision 추정이 없으면 쇼핑몰 사이트명으로 보강
-    brand = result.get("brand_guess") or product.get("site_name")
+    # 전신 사진 = 여러 아이템: 첫 번째(대표)는 기존 행 갱신, 나머지는 새 행으로 등록
+    detected_items = result.get("items") or [result]  # 구형 단일 응답 방어
     with psycopg.connect(settings.DATABASE_URL) as conn:
-        conn.execute(
-            """UPDATE clothes_item
-               SET category = %s, brand_info = %s, meta_data = %s::jsonb, scan_status = 'DONE'
-               WHERE id = %s""",
-            (result.get("category"), brand,
-             json.dumps(meta, ensure_ascii=False), item_id),
-        )
+        for index, detected in enumerate(detected_items):
+            meta = {k: v for k, v in detected.items()
+                    if k not in ("category", "brand_guess")}
+            brand = detected.get("brand_guess")
+            if index == 0:
+                if product.get("title"):
+                    meta["product_name"] = product["title"]
+                # 브랜드: Vision 추정이 없으면 쇼핑몰 사이트명으로 보강
+                brand = brand or product.get("site_name")
+                conn.execute(
+                    """UPDATE clothes_item
+                       SET category = %s, brand_info = %s, meta_data = %s::jsonb,
+                           scan_status = 'DONE'
+                       WHERE id = %s""",
+                    (detected.get("category"), brand,
+                     json.dumps(meta, ensure_ascii=False), item_id),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO clothes_item
+                       (user_id, category, brand_info, meta_data, image_key, scan_status)
+                       VALUES (%s, %s, %s, %s::jsonb, %s, 'DONE')""",
+                    (user_id, detected.get("category"), brand,
+                     json.dumps(meta, ensure_ascii=False), image_key),
+                )
+        if len(detected_items) > 1:
+            log.info("전신 사진에서 %d개 아이템 추출 item=%s", len(detected_items), item_id)
 
         # 헤어 자동 반영 — 헤어도 패션의 일부. 단, 본인 촬영본을 분석했을 때만.
         # (상품컷으로 분석한 경우 사진 속 모델의 머리를 따라가면 안 된다)

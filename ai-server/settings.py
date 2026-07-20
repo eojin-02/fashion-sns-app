@@ -32,7 +32,9 @@ S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
 S3_BUCKET = os.getenv("S3_BUCKET", "wardrobe")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+# 고정 버전 대신 최신 추적 별칭 — 구모델 무료 티어 폐기(429/404)로 스캔이 전부
+# 실패했던 사고(2026-07) 재발 방지. 특정 버전이 필요하면 .env의 GEMINI_MODEL로 덮어쓴다.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 SCAN_QUEUE = "queue:scan"
 RESULT_CHANNEL_PREFIX = "scan-result:"  # scan-result:{user_id} 채널로 완료 알림 발행
